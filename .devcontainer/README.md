@@ -63,6 +63,42 @@ which is correct on the host but does not exist in the container. If the extensi
 workspace value inside the container, select the `/opt/venv` interpreter manually once and VS Code
 will remember it.
 
+## `"hostRequirements": { "gpu": "optional" }` and the jax[cuda12] install
+
+`optional` rather than `true` on purpose: the GPU is attached when the host has one, and the
+container still starts normally when it does not. `true` would refuse to start on every machine
+without an NVIDIA runtime, and `"runArgs": ["--gpus", "all"]` would fail the same way.
+
+`onCreateCommand.sh` then installs `jax[cuda12]` if `nvidia-smi` is visible, which it is only when a
+GPU was actually attached. Without it, JAX runs on CPU and everything still works.
+
+Two things about that install:
+
+- **It is not in `uv.lock`, deliberately** — it is a hardware-specific dependency, and pinning it
+  would impose several GB of CUDA wheels on everyone. It is layered on top of the synced
+  environment instead.
+- **A later `uv sync` removes it again.** `uv sync` reconciles the environment exactly against the
+  lockfile, so these wheels count as extraneous. `uv run` does *not* do this, so ordinary work is
+  unaffected — but after a `uv sync` following, say, a `git pull` that moved dependencies, re-run
+  the install to get the GPU back:
+
+  ```bash
+  uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" "jax[cuda12]"
+  ```
+
+  Or use `uv sync --inexact`, which leaves extraneous packages alone.
+
+Note the explicit `--python`. Unlike `uv sync` and `uv run`, `uv pip` ignores
+`UV_PROJECT_ENVIRONMENT` and resolves `./.venv` — which, if you have also worked on the repository
+natively, is your host virtualenv showing through the bind mount. On a Windows host the bare form
+fails with `Python interpreter not found at /workspaces/ToOp/.venv/bin/python3`.
+
+Check what JAX sees with:
+
+```bash
+uv run python -c "import jax; print(jax.devices())"
+```
+
 ## `${localEnv:HOME}${localEnv:USERPROFILE}/.ssh`
 
 The two variables are concatenated on purpose. Windows sets `USERPROFILE` and leaves `HOME` unset;

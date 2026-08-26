@@ -46,9 +46,12 @@ services:
       - "127.0.0.1:8888:8888"
       - "127.0.0.1:6006:6006"
     environment:
-      # Pin JAX to CPU. Without this, JAX probes for accelerators on every import and emits noisy
-      # warnings on a machine with no CUDA runtime.
-      JAX_PLATFORMS: cpu
+      # Empty means "let JAX decide": attempt the GPU, fall back to the CPU when there is none.
+      # This service is built without the CUDA wheels, so in practice it always lands on the CPU --
+      # but it lands there by detection rather than by decree, and entrypoint.sh prints which it was
+      # and why. Previously pinned to `cpu` to suppress accelerator-probe warnings; the banner now
+      # reports the outcome explicitly, which is more useful than silence.
+      JAX_PLATFORMS: ""
 
   # NVIDIA GPU variant. Two things are required, and the profile alone is not enough:
   #   1. build with CUDA:  INSTALL_CUDA=true docker compose --profile gpu build
@@ -58,6 +61,17 @@ services:
   toop-gpu:
     <<: *toop-base
     profiles: ["gpu"]
+    # Overrides the anchor's volume list, and must: the venv volume cannot be shared with the CPU
+    # service. Docker seeds a named volume from the image only while that volume is still empty, and
+    # toop-venv is already populated by the CPU service. Mounting it here would shadow the
+    # jax[cuda12] installed into the image's /opt/venv at build time, and this service would run on
+    # CPU with no error anywhere. entrypoint.sh cannot repair that either -- its --inexact sync
+    # preserves the CUDA wheels but never installs them, since they are absent from uv.lock.
+    # The bind mount and the download cache are safe to share; only /opt/venv is per-variant.
+    volumes:
+      - .:/app
+      - toop-venv-gpu:/opt/venv
+      - toop-cache:/root/.cache
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -79,4 +93,6 @@ services:
 
 volumes:
   toop-venv:
+  # Separate from toop-venv on purpose -- see the comment on the toop-gpu service.
+  toop-venv-gpu:
   toop-cache:

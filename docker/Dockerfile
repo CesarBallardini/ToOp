@@ -77,11 +77,36 @@ ENV UV_COMPILE_BYTECODE=0
 
 # Optional NVIDIA GPU support. Requires an NVIDIA GPU, a Windows driver with WSL2 CUDA support, and
 # `docker compose --profile gpu`. Roughly doubles the image size, hence opt-in.
+#
+# Three things here are load-bearing and easy to get wrong:
+#
+#  1. `--python` is mandatory. Unlike `uv sync` / `uv run`, `uv pip` ignores UV_PROJECT_ENVIRONMENT;
+#     it resolves VIRTUAL_ENV or ./.venv. Neither exists at build time (.venv/ is excluded by
+#     Dockerfile.dockerignore), so without this the build fails outright rather than installing to
+#     the wrong place.
+#
+#  2. The version is pinned to whatever uv.lock already resolved, read back from the environment
+#     installed above rather than hardcoded here. `jax[cuda12]` unpinned resolves to the newest
+#     release, which would silently violate the `jax (>=0.5.3,<0.6.0)` pin in
+#     packages/dc_solver_pkg/pyproject.toml and desynchronise the image from the lock.
+#
+#  3. TOOP_CUDA is recorded in the image so entrypoint.sh knows to re-sync with --inexact. The CUDA
+#     wheels are deliberately absent from uv.lock, so a plain `uv sync --frozen` treats them as
+#     extraneous and uninstalls them on every container start -- silently downgrading the GPU
+#     service back to CPU. See docker/README.md.
 ARG INSTALL_CUDA=false
 RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ "$INSTALL_CUDA" = "true" ]; then uv pip install "jax[cuda12]"; fi
+    if [ "$INSTALL_CUDA" = "true" ]; then \
+      JAX_VERSION="$("$UV_PROJECT_ENVIRONMENT/bin/python" -c 'import jax; print(jax.__version__)')" \
+   && echo "Installing jax[cuda12]==${JAX_VERSION} (pinned to the version resolved by uv.lock)" \
+   && uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" "jax[cuda12]==${JAX_VERSION}"; \
+    fi
+ENV TOOP_CUDA=${INSTALL_CUDA}
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Copied next to the entrypoint rather than left in the bind-mounted /app, so the container can still
+# report its compute device when the repository is mounted over, absent, or mid-checkout.
+COPY docker/device_banner.py /usr/local/bin/device_banner.py
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8888 6006

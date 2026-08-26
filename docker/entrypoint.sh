@@ -18,7 +18,21 @@ git config --global --add safe.directory /app
 # .devcontainer/onCreateCommand.sh does. Set TOOP_SKIP_SYNC=1 to skip (e.g. when offline).
 if [ "${TOOP_SKIP_SYNC:-0}" != "1" ]; then
     echo "entrypoint: syncing uv environment at ${UV_PROJECT_ENVIRONMENT:-/opt/venv}"
-    uv sync --frozen --all-groups
+    # --inexact on the CUDA image: jax[cuda12] is installed at build time but is deliberately not in
+    # uv.lock, so the default (exact) sync considers it extraneous and removes it on every start,
+    # quietly turning the GPU service back into a CPU one. --inexact leaves unmanaged packages alone.
+    if [ "${TOOP_CUDA:-false}" = "true" ]; then
+        uv sync --frozen --all-groups --inexact
+    else
+        uv sync --frozen --all-groups
+    fi
 fi
+
+# Report the compute device at every container start. Three of the four ways the GPU setup can break
+# are silent -- the container comes up, nothing errors, and everything runs on the CPU -- so the only
+# reliable signal is which device JAX actually hands back. Never fatal: this is a diagnostic, and a
+# broken banner must not stop the container from starting.
+"${UV_PROJECT_ENVIRONMENT:-/opt/venv}/bin/python" /usr/local/bin/device_banner.py || \
+    echo "entrypoint: device banner failed; continuing"
 
 exec "$@"

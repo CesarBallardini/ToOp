@@ -5,9 +5,25 @@
 # you can obtain one at https://mozilla.org/MPL/2.0/.
 # Mozilla Public License, version 2.0
 
+# Default for the whole tree: LF in the working copy as well as in the object
+# store, regardless of the contributor's core.autocrlf setting. "auto" leaves
+# anything git sniffs as binary alone.
+* text=auto eol=lf
+
+# Grid fixtures and figures are byte-exact inputs -- keep git's text heuristics
+# away from them even when the content happens to look like text.
+*.hdf5          binary
+*.npy           binary
+*.pkl           binary
+*.zip           binary
+*.png           binary
+*.jpg           binary
+
 # Files consumed by Linux containers must keep LF endings regardless of the
 # contributor's core.autocrlf setting. A CRLF entrypoint script fails at runtime
 # with a misleading "exec format error" / "no such file or directory".
+# Explicit "text" rather than the "text=auto" default above: these must be
+# normalized even if the binary heuristic ever misfires on them.
 *.sh            text eol=lf
 Dockerfile      text eol=lf
 Dockerfile.*    text eol=lf

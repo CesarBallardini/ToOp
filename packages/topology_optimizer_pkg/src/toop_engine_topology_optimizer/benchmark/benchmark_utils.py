@@ -18,7 +18,10 @@ import os
 # Keep warnings under control
 import warnings
 from dataclasses import dataclass
-from multiprocessing.connection import Connection
+
+# See the comment in dc_solver/jax/benchmarks/runner.py: `Pipe()` yields `PipeConnection` on
+# Windows, which is not a `Connection`. `_ConnectionBase` is the shared base of both.
+from multiprocessing.connection import _ConnectionBase as Connection
 from pathlib import Path
 
 import jax

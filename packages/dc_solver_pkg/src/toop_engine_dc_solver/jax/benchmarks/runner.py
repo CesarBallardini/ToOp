@@ -14,7 +14,15 @@ import os
 import sys
 from copy import deepcopy
 from multiprocessing import Process
-from multiprocessing.connection import Connection
+
+# `multiprocessing.Pipe()` returns a `Connection` on POSIX but a `PipeConnection` on Windows, and the
+# two are siblings rather than parent and child -- `isinstance(pipe_end, Connection)` is False there.
+# Annotating the narrow `Connection` therefore makes beartype (on under ENABLE_BEARTYPE=true, i.e.
+# every test run) reject the argument on Windows, killing the child process; the parent then blocks
+# forever in `recv()` until the test times out. `_ConnectionBase` is the shared base of both and is
+# what the annotation actually means. It is private, but stable across CPython 3.x, and widening to
+# it accepts everything the old annotation did.
+from multiprocessing.connection import _ConnectionBase as Connection
 
 import yaml
 from toop_engine_dc_solver.jax.benchmarks.benchmarks import run_benchmark

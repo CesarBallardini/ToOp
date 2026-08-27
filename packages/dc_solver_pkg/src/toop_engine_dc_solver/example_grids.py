@@ -983,10 +983,19 @@ def case9241_pandapower(data_folder: Path) -> None:
     graph = pp.topology.create_nxgraph(net, multi=True)
     line_for_nminus1, trafo_for_nminus1 = update_masks_for_bridges(line_for_nminus1, trafo_for_nminus1, graph)
 
-    # Partition the grid into 4 regions of roughly equal size
-    part1, part2 = kernighan_lin_bisection(graph, seed=np.random.randint(2**32))
-    part11, part12 = kernighan_lin_bisection(graph.subgraph(part1), seed=np.random.randint(2**32))
-    part21, part22 = kernighan_lin_bisection(graph.subgraph(part2), seed=np.random.randint(2**32))
+    # Partition the grid into 4 regions of roughly equal size.
+    # `dtype` is explicit because `np.random.randint` defaults to the platform's C `long`, which is
+    # int32 on Windows -- a `high` of 2**32 is then out of range and raises. int64 is what the
+    # default already resolved to on Linux, so the sampled range is unchanged there.
+    # The `int()` is equally load-bearing: passing an explicit `dtype` switches the return from a
+    # Python int to a numpy scalar, and networkx's `py_random_state` accepts only the former
+    # ("ValueError: <n> cannot be used to generate a random.Random instance").
+    def _bisection_seed() -> int:
+        return int(np.random.randint(2**32, dtype=np.int64))
+
+    part1, part2 = kernighan_lin_bisection(graph, seed=_bisection_seed())
+    part11, part12 = kernighan_lin_bisection(graph.subgraph(part1), seed=_bisection_seed())
+    part21, part22 = kernighan_lin_bisection(graph.subgraph(part2), seed=_bisection_seed())
     regions = [part11, part12, part21, part22]
     region_masks, relevant_sub_indices = generate_region_masks(net, line_for_nminus1, trafo_for_nminus1, graph, regions)
 

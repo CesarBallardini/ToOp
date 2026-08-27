@@ -117,13 +117,19 @@ def find_bridges(
     graph_nx = _get_graph_with_branch_keys(from_node, to_node, number_of_nodes)
     # Get bridges using networkx function
     bridges = list(nx.bridges(graph_nx))
-    bridges = np.array(bridges, dtype=int)
+    # Networkx gives back the from-to node pairs for each bridge. Therefore we use
+    from_to_node = np.c_[from_node, to_node]
+    # `bridges` and `from_to_node` are compared through a structured view whose formats are taken
+    # from `from_to_node.dtype` below, so the two arrays must carry the same integer width. Deriving
+    # it here keeps them in step whatever the caller passes in. `dtype=int` would be the platform's
+    # C `long` -- int32 on Windows against an int64 `from_to_node` -- and the mismatched itemsize
+    # makes `.view()` raise "When changing to a larger dtype, its size must be a divisor of the total
+    # size in bytes of the last axis of the array".
+    bridges = np.array(bridges, dtype=from_to_node.dtype)
     if not bridges.any():
         return np.zeros(from_node.size, dtype=bool)
     bridges = np.r_[bridges, bridges[:, [1, 0]]]
 
-    # Networkx gives back the from-to node pairs for each bridge. Therefore we use
-    from_to_node = np.c_[from_node, to_node]
     # Faster than previous solution https://stackoverflow.com/a/8317403
     ncols = from_to_node.shape[1]
     dtype = {"names": ["f{}".format(i) for i in range(ncols)], "formats": ncols * [from_to_node.dtype]}

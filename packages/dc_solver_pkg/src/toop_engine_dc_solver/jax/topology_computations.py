@@ -504,7 +504,7 @@ def default_topology(
                 1,
             ),
             int_max(),
-            dtype=int,
+            dtype=int_dtype(),
         ),
         pad_mask=jnp.ones(batch_size, dtype=bool),
     )

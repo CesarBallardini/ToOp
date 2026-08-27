@@ -160,6 +160,19 @@ docker compose run --rm toop uv run pytest packages/dc_solver_pkg/tests/jax/benc
 So it is a VM memory-ceiling artefact, not a defect in the image. Raise the WSL2 memory limit
 (below) or run the Ray benchmarks separately from the rest of the suite.
 
+A later **serial** run of the same suite — no `-n`, so nothing competes for memory — came back
+completely clean:
+
+```powershell
+docker compose exec toop uv run pytest packages/dc_solver_pkg/tests -q -p no:randomly
+# 531 passed, 8 skipped, 7 xfailed in 39:57
+```
+
+`test_bench_postprocessing.py::test_main` passes there, which supports the memory-pressure reading
+above: the failure follows the parallelism, not the code. The counts differ from the `-n 4` figures
+because the suite has grown since that measurement. Serial is ~3× slower but is the reliable way to
+get a trustworthy pass/fail list; use `-n 4` for speed once you know the suite is green.
+
 ## Where to put your grid data
 
 The repository is bind-mounted at `/app`, so the `data/` folder you see in Explorer is the same one

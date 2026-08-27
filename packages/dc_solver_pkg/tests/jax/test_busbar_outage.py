@@ -44,6 +44,7 @@ from toop_engine_dc_solver.jax.types import (
     BBOutageBaselineAnalysis,
     RelBBOutageData,
     StaticInformation,
+    int_dtype,
     int_max,
 )
 from toop_engine_dc_solver.postprocess.postprocess_powsybl import apply_topology
@@ -218,34 +219,34 @@ def test_perform_outage_single_busbar(
 
 def test_perform_rel_bb_outage_single_topo_filters_padded_busbar_slots() -> None:
     rel_bb_outage_data = RelBBOutageData(
-        branch_outage_set=jnp.full((1, 2, 1), int_max(), dtype=int),
+        branch_outage_set=jnp.full((1, 2, 1), int_max(), dtype=int_dtype()),
         deltap_set=jnp.zeros((1, 2, 1), dtype=float),
-        nodal_indices=jnp.array([[0, int_max()]], dtype=int),
+        nodal_indices=jnp.array([[0, int_max()]], dtype=int_dtype()),
         articulation_node_mask=jnp.array([[False, False]], dtype=bool),
         valid_busbar_mask=jnp.array([[True, False]], dtype=bool),
-        valid_busbar_flat_indices=jnp.array([0], dtype=int),
-        zero_flow_branch_set=jnp.full((1, 2, 0), int_max(), dtype=int),
+        valid_busbar_flat_indices=jnp.array([0], dtype=int_dtype()),
+        zero_flow_branch_set=jnp.full((1, 2, 0), int_max(), dtype=int_dtype()),
     )
     action_set = ActionSet(
         branch_actions=jnp.zeros((1, 1), dtype=bool),
         inj_actions=jnp.zeros((1, 0), dtype=bool),
-        n_actions_per_sub=jnp.array([1], dtype=int),
-        substation_correspondence=jnp.array([0], dtype=int),
+        n_actions_per_sub=jnp.array([1], dtype=int_dtype()),
+        substation_correspondence=jnp.array([0], dtype=int_dtype()),
         unsplit_action_mask=jnp.array([True], dtype=bool),
-        reassignment_distance=jnp.array([0], dtype=int),
-        action_start_indices=jnp.array([0], dtype=int),
+        reassignment_distance=jnp.array([0], dtype=int_dtype()),
+        action_start_indices=jnp.array([0], dtype=int_dtype()),
         rel_bb_outage_data=rel_bb_outage_data,
     )
 
     lfs, success = perform_rel_bb_outage_single_topo(
         n_0_flows=jnp.zeros((1, 1), dtype=float),
-        action_indices=jnp.array([0], dtype=int),
+        action_indices=jnp.array([0], dtype=int_dtype()),
         ptdf=jnp.zeros((1, 1), dtype=float),
         nodal_injections=jnp.zeros((1, 1), dtype=float),
-        from_nodes=jnp.array([0], dtype=int),
-        to_nodes=jnp.array([0], dtype=int),
+        from_nodes=jnp.array([0], dtype=int_dtype()),
+        to_nodes=jnp.array([0], dtype=int_dtype()),
         action_set=action_set,
-        branches_monitored=jnp.array([0], dtype=int),
+        branches_monitored=jnp.array([0], dtype=int_dtype()),
     )
 
     assert lfs.shape[0] == 1
@@ -253,7 +254,7 @@ def test_perform_rel_bb_outage_single_topo_filters_padded_busbar_slots() -> None
 
 
 def test_remove_first_valid_outage_branch() -> None:
-    outages = jnp.array([10, 20, int_max(), 30], dtype=int)
+    outages = jnp.array([10, 20, int_max(), 30], dtype=int_dtype())
 
     retry_outages = _remove_first_valid_outage_branch(outages)
 
@@ -261,7 +262,7 @@ def test_remove_first_valid_outage_branch() -> None:
 
 
 def test_perform_outage_single_busbar_selects_first_valid_retry(monkeypatch: pytest.MonkeyPatch) -> None:
-    expected_retry = jnp.array([int_max(), 20, 30], dtype=int)
+    expected_retry = jnp.array([int_max(), 20, 30], dtype=int_dtype())
 
     def fake_compute_multi_outage(
         ptdf: Float[Array, " n_branches n_nodes"],
@@ -278,15 +279,15 @@ def test_perform_outage_single_busbar_selects_first_valid_retry(monkeypatch: pyt
     monkeypatch.setattr(busbar_outage_module, "compute_multi_outage", fake_compute_multi_outage)
 
     lfs, success = perform_outage_single_busbar(
-        connected_branches_to_outage=jnp.array([10, 20, 30], dtype=int),
+        connected_branches_to_outage=jnp.array([10, 20, 30], dtype=int_dtype()),
         injection_deltap_to_outage=jnp.array([0.0], dtype=float),
-        node_index_busbar=jnp.array(0, dtype=int),
+        node_index_busbar=jnp.array(0, dtype=int_dtype()),
         ptdf=jnp.zeros((3, 1), dtype=float),
         nodal_injections=jnp.zeros((1, 1), dtype=float),
-        from_node=jnp.array([0, 0, 0], dtype=int),
-        to_node=jnp.array([1, 1, 1], dtype=int),
+        from_node=jnp.array([0, 0, 0], dtype=int_dtype()),
+        to_node=jnp.array([1, 1, 1], dtype=int_dtype()),
         n_0_flows=jnp.zeros((1, 3), dtype=float),
-        branches_monitored=jnp.array([0, 1, 2], dtype=int),
+        branches_monitored=jnp.array([0, 1, 2], dtype=int_dtype()),
     )
 
     assert bool(success)
@@ -307,15 +308,15 @@ def test_perform_outage_single_busbar_rejects_negative_node_index(monkeypatch: p
     monkeypatch.setattr(busbar_outage_module, "compute_multi_outage", fake_compute_multi_outage)
 
     lfs, success = perform_outage_single_busbar(
-        connected_branches_to_outage=jnp.array([int_max()], dtype=int),
+        connected_branches_to_outage=jnp.array([int_max()], dtype=int_dtype()),
         injection_deltap_to_outage=jnp.array([3.0], dtype=float),
-        node_index_busbar=jnp.array(-1, dtype=int),
+        node_index_busbar=jnp.array(-1, dtype=int_dtype()),
         ptdf=jnp.array([[1.0, 2.0]], dtype=float),
         nodal_injections=jnp.zeros((1, 2), dtype=float),
-        from_node=jnp.array([0], dtype=int),
-        to_node=jnp.array([1], dtype=int),
+        from_node=jnp.array([0], dtype=int_dtype()),
+        to_node=jnp.array([1], dtype=int_dtype()),
         n_0_flows=jnp.zeros((1, 1), dtype=float),
-        branches_monitored=jnp.array([0], dtype=int),
+        branches_monitored=jnp.array([0], dtype=int_dtype()),
     )
 
     assert not bool(success)
@@ -928,7 +929,7 @@ def test_perform_rel_bb_outage_for_unsplit_grid(
 
     action_indices = pad_action_with_unsplit_action_indices(
         di.action_set,
-        jnp.full((1,), int_max(), dtype=int),
+        jnp.full((1,), int_max(), dtype=int_dtype()),
     )
 
     injection_action_all_relevant_subs = di.action_set[action_indices].inj_actions
@@ -1141,14 +1142,14 @@ def test_filter_already_outaged_branches_single_outage():
     assert jnp.array_equal(filtered_branches, expected_result), "All branches should be set to int_max()."
 
     # Test case 4: Empty branch_outages
-    branch_outages = jnp.array([], dtype=int)
+    branch_outages = jnp.array([], dtype=int_dtype())
     disconnections = jnp.array([1, 2])
     filtered_branches = filter_already_outaged_branches_single_outage(branch_outages, disconnections)
     assert filtered_branches.size == 0, "Filtered branches should be empty when branch_outages is empty."
 
     # Test case 5: Empty disconnections
     branch_outages = jnp.array([1, 2, 3, 4])
-    disconnections = jnp.array([], dtype=int)
+    disconnections = jnp.array([], dtype=int_dtype())
     filtered_branches = filter_already_outaged_branches_single_outage(branch_outages, disconnections)
     assert jnp.array_equal(filtered_branches, branch_outages), (
         "Branches should remain unchanged when disconnections are empty."

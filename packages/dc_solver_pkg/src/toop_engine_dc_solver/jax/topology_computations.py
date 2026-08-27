@@ -27,6 +27,7 @@ from toop_engine_dc_solver.jax.types import (
     SolverConfig,
     StaticInformation,
     TopoVectBranchComputations,
+    int_dtype,
     int_max,
 )
 from toop_engine_dc_solver.jax.utils import HashableArrayWrapper
@@ -75,7 +76,7 @@ def convert_topo_to_action_set_index(
 
     n_rel_subs = branch_actions.n_actions_per_sub.shape[0]
 
-    new_actions = jnp.full((topologies.topologies.shape[0], topologies.topologies.shape[1]), int_max(), dtype=int)
+    new_actions = jnp.full((topologies.topologies.shape[0], topologies.topologies.shape[1]), int_max(), dtype=int_dtype())
     has_splits = jnp.any(topologies.topologies, axis=2)
 
     # Loop through all substations and try to find the actions belonging to that substation in the branch action set
@@ -209,7 +210,7 @@ def convert_topo_to_action_set_index_jittable(
         lower=0,
         upper=n_rel_subs,
         body_fun=_match_single_sub,
-        init_val=jnp.full((topologies.topologies.shape[0], topologies.topologies.shape[1]), int_max(), dtype=int),
+        init_val=jnp.full((topologies.topologies.shape[0], topologies.topologies.shape[1]), int_max(), dtype=int_dtype()),
     )
 
     return ActionIndexComputations(
@@ -240,7 +241,7 @@ def get_bitvec_from_action_set(
         The substation id of the action. If the action is invalid, this will be set to int_max()
     """
     if branch_actions.branch_actions.shape[0] == 0:
-        return jnp.zeros(branch_actions.branch_actions.shape[1], dtype=bool), jnp.array(int_max(), dtype=int)
+        return jnp.zeros(branch_actions.branch_actions.shape[1], dtype=bool), jnp.array(int_max(), dtype=int_dtype())
 
     topology = branch_actions.branch_actions.at[action].get(mode="fill", fill_value=False)
     sub_id = branch_actions.substation_correspondence.at[action].get(mode="fill", fill_value=int_max())
@@ -626,7 +627,7 @@ def random_topology(
                 pad_mask=jnp.ones(batch_size, dtype=bool),
             )
         return ActionIndexComputations(
-            action=jnp.full((batch_size, 1), int_max(), dtype=int),
+            action=jnp.full((batch_size, 1), int_max(), dtype=int_dtype()),
             pad_mask=jnp.ones(batch_size, dtype=bool),
         )
 

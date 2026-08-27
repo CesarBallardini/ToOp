@@ -9,6 +9,7 @@
 
 import numpy as np
 from jaxtyping import Bool, Int
+from toop_engine_dc_solver.jax.types import int_dtype
 
 
 def group_by_node(
@@ -58,7 +59,7 @@ def get_num_elements_per_node(
         An Int Array indicating the amount of elements starting or leaving the nodes in the given list
     """
     num_elements_per_node = [branch_array.size for branch_array in elements_at_node_list]
-    return np.array(num_elements_per_node, dtype=int)
+    return np.array(num_elements_per_node, dtype=int_dtype())
 
 
 def convert_boolean_mask_to_index_array(
@@ -83,12 +84,12 @@ def convert_boolean_mask_to_index_array(
         An index array of the smallest shape possible with index values of the True elements in the mask
     """
     if mask.size == 0 or np.sum(mask) == 0:
-        return np.zeros((mask.shape[0], 0), dtype=int)
+        return np.zeros((mask.shape[0], 0), dtype=int_dtype())
 
     case_idx, element_idx = np.nonzero(mask)
     # Find out for each element which index of occurrence it is in this case
     occurrence = np.diag(np.cumsum(case_idx[None, :] == case_idx[:, None], axis=1)) - 1
-    retval = np.full((mask.shape[0], occurrence.max() + 1), padding, dtype=int)
+    retval = np.full((mask.shape[0], occurrence.max() + 1), padding, dtype=int_dtype())
     # Then overwrite the padded array
     retval[case_idx, occurrence] = element_idx
     return retval

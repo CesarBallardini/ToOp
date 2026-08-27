@@ -44,6 +44,7 @@ from toop_engine_dc_solver.jax.types import (
     RelBBOutageData,
     SolverConfig,
     StaticInformation,
+    int_dtype,
     int_max,
 )
 from toop_engine_dc_solver.jax.utils import HashableArrayWrapper
@@ -247,10 +248,10 @@ def convert_to_jax(
     static_information = StaticInformation(
         dynamic_information=DynamicInformation(
             # Network Data arguments
-            from_node=jnp.array(network_data.from_nodes, dtype=int),
-            to_node=jnp.array(network_data.to_nodes, dtype=int),
+            from_node=jnp.array(network_data.from_nodes, dtype=int_dtype()),
+            to_node=jnp.array(network_data.to_nodes, dtype=int_dtype()),
             ptdf=ptdf,
-            generators_per_sub=jnp.array(network_data.num_injections_per_node, dtype=int),
+            generators_per_sub=jnp.array(network_data.num_injections_per_node, dtype=int_dtype()),
             branch_limits=BranchLimits(
                 max_mw_flow=max_mw_flows,
                 max_mw_flow_n_1=(max_mw_flows_n_1 if not jnp.allclose(max_mw_flows, max_mw_flows_n_1) else None),
@@ -269,12 +270,12 @@ def convert_to_jax(
             disconnectable_branches=disconnectable_branches,
             # Solver arguments
             action_set=action_set,
-            multi_outage_branches=[jnp.array(x, dtype=int) for x in network_data.split_multi_outage_branches],
-            multi_outage_nodes=[jnp.array(x, dtype=int) for x in network_data.split_multi_outage_nodes],
+            multi_outage_branches=[jnp.array(x, dtype=int_dtype()) for x in network_data.split_multi_outage_branches],
+            multi_outage_nodes=[jnp.array(x, dtype=int_dtype()) for x in network_data.split_multi_outage_nodes],
             nonrel_injection_outage_deltap=jnp.array(network_data.nonrel_io_deltap, dtype=float),
-            nonrel_injection_outage_node=jnp.array(network_data.nonrel_io_node, dtype=int),
-            relevant_injection_outage_idx=jnp.array(network_data.rel_io_local_inj_index, dtype=int),
-            relevant_injection_outage_sub=jnp.array(network_data.rel_io_sub, dtype=int),
+            nonrel_injection_outage_node=jnp.array(network_data.nonrel_io_node, dtype=int_dtype()),
+            relevant_injection_outage_idx=jnp.array(network_data.rel_io_local_inj_index, dtype=int_dtype()),
+            relevant_injection_outage_sub=jnp.array(network_data.rel_io_sub, dtype=int_dtype()),
             unsplit_flow=get_unsplit_flows(
                 ptdf=ptdf,
                 nodal_injections=nodal_injection,
@@ -290,8 +291,8 @@ def convert_to_jax(
                 pst_n_taps=pst_n_taps,
                 pst_tap_values=pst_tap_values,
                 pst_tap_susceptance_values=pst_tap_susceptance_values,
-                starting_tap_idx=jnp.array(network_data.phase_shift_starting_tap_idx, dtype=int),
-                grid_model_low_tap=jnp.array(network_data.phase_shift_low_tap, dtype=int),
+                starting_tap_idx=jnp.array(network_data.phase_shift_starting_tap_idx, dtype=int_dtype()),
+                grid_model_low_tap=jnp.array(network_data.phase_shift_low_tap, dtype=int_dtype()),
                 parallel_pst_group_mask=parallel_pst_group_mask,
             )
             if network_data.controllable_pst_node_mask.any()
@@ -383,9 +384,9 @@ def convert_non_rel_bb_outage(
     outage_branches = network_data.non_rel_bb_outage_br_indices
     zero_flow_branches = network_data.non_rel_bb_outage_zero_flow_br_indices or [[] for _ in outage_branches]
     max_branches_per_sub = max(len(branches) for branches in network_data.branches_at_nodes)
-    padded_outage_branches = np.full((outage_deltap.shape[0], max_branches_per_sub), int_max(), dtype=int)
+    padded_outage_branches = np.full((outage_deltap.shape[0], max_branches_per_sub), int_max(), dtype=int_dtype())
     max_zero_flow_branches = max((len(branches) for branches in zero_flow_branches), default=0)
-    padded_zero_flow_branches = np.full((outage_deltap.shape[0], max_zero_flow_branches), int_max(), dtype=int)
+    padded_zero_flow_branches = np.full((outage_deltap.shape[0], max_zero_flow_branches), int_max(), dtype=int_dtype())
 
     for i, branches in enumerate(outage_branches):
         padded_outage_branches[i, : len(branches)] = branches
@@ -446,9 +447,11 @@ def convert_rel_bb_outage_data(  # noqa: C901, PLR0915
 
     # Initialize the padded array with a sentinel value (int_max)
     max_val = int_max()
-    padded_branch_outage_set = max_val * np.ones((n_actions, n_max_bb_to_outage_per_sub, max_branches_per_sub), dtype=int)
+    padded_branch_outage_set = max_val * np.ones(
+        (n_actions, n_max_bb_to_outage_per_sub, max_branches_per_sub), dtype=int_dtype()
+    )
     padded_delta_p_set = np.zeros((n_actions, n_max_bb_to_outage_per_sub, n_timesteps), dtype=float)
-    padded_nodal_index_set = max_val * np.ones((n_actions, n_max_bb_to_outage_per_sub), dtype=int)
+    padded_nodal_index_set = max_val * np.ones((n_actions, n_max_bb_to_outage_per_sub), dtype=int_dtype())
     padded_articulation_node_mask = np.zeros((n_actions, n_max_bb_to_outage_per_sub), dtype=bool)
     padded_valid_busbar_mask = np.zeros((n_actions, n_max_bb_to_outage_per_sub), dtype=bool)
     padded_zero_flow_branch_set = max_val * np.ones(
@@ -646,7 +649,7 @@ def convert_rel_bb_outage_data(  # noqa: C901, PLR0915
         unsplit_articulation_mask = padded_articulation_node_mask[start_idx]
         padded_valid_busbar_mask[start_idx:end_idx, unsplit_articulation_mask] = False
 
-    representative_action_indices = np.array(action_start_indices, dtype=int)
+    representative_action_indices = np.array(action_start_indices, dtype=int_dtype())
     valid_busbar_flat_indices = np.flatnonzero(padded_valid_busbar_mask[representative_action_indices].reshape(-1))
 
     return RelBBOutageData(
@@ -655,7 +658,7 @@ def convert_rel_bb_outage_data(  # noqa: C901, PLR0915
         nodal_indices=jnp.array(padded_nodal_index_set),
         articulation_node_mask=jnp.array(padded_articulation_node_mask),
         valid_busbar_mask=jnp.array(padded_valid_busbar_mask),
-        valid_busbar_flat_indices=jnp.array(valid_busbar_flat_indices, dtype=int),
+        valid_busbar_flat_indices=jnp.array(valid_busbar_flat_indices, dtype=int_dtype()),
         zero_flow_branch_set=jnp.array(padded_zero_flow_branch_set),
     )
 

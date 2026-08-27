@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 from jaxtyping import PRNGKeyArray
-from toop_engine_dc_solver.jax.types import int_max
+from toop_engine_dc_solver.jax.types import int_dtype, int_max
 from toop_engine_topology_optimizer.dc.genetic_functions.mutation.config import DisconnectionMutationConfig
 from toop_engine_topology_optimizer.dc.genetic_functions.mutation.mutate_disconnections import (
     change_disconnected_branch,
@@ -27,10 +27,10 @@ def random_key() -> PRNGKeyArray:
 @pytest.mark.parametrize(
     "disconnections,n_disconnectable_branches",
     [
-        (jnp.array([1, 2, int_max(), int_max()], dtype=int), 5),
-        (jnp.array([int_max(), int_max(), int_max(), int_max()], dtype=int), 4),
-        (jnp.array([0, int_max(), int_max(), int_max()], dtype=int), 3),
-        (jnp.array([2, 3, 4, int_max()], dtype=int), 6),
+        (jnp.array([1, 2, int_max(), int_max()], dtype=int_dtype()), 5),
+        (jnp.array([int_max(), int_max(), int_max(), int_max()], dtype=int_dtype()), 4),
+        (jnp.array([0, int_max(), int_max(), int_max()], dtype=int_dtype()), 3),
+        (jnp.array([2, 3, 4, int_max()], dtype=int_dtype()), 6),
     ],
 )
 def test_change_disconnected_branch_valid(random_key, disconnections, n_disconnectable_branches):
@@ -50,14 +50,14 @@ def test_change_disconnected_branch_valid(random_key, disconnections, n_disconne
 
 
 def test_change_disconnected_branch_no_disconnected(random_key):
-    disconnections = jnp.array([int_max(), int_max(), int_max()], dtype=int)
+    disconnections = jnp.array([int_max(), int_max(), int_max()], dtype=int_dtype())
     n_disconnectable_branches = 3
     disc_idx, new_disc_id = change_disconnected_branch(random_key, disconnections, n_disconnectable_branches)
     assert disc_idx == int_max()
 
 
 def test_change_disconnected_branch_all_branches_disconnected(random_key):
-    disconnections = jnp.array([0, 1, 2], dtype=int)
+    disconnections = jnp.array([0, 1, 2], dtype=int_dtype())
     n_disconnectable_branches = 3
     disc_idx, new_disc_id = change_disconnected_branch(random_key, disconnections, n_disconnectable_branches)
     # Since only 3 branches are possible and all are disconnected, new_disc_id  should be
@@ -67,7 +67,7 @@ def test_change_disconnected_branch_all_branches_disconnected(random_key):
 
 def test_change_disconnected_branch_repeatability():
     random_key = jax.random.PRNGKey(123)
-    disconnections = jnp.array([1, int_max(), int_max()], dtype=int)
+    disconnections = jnp.array([1, int_max(), int_max()], dtype=int_dtype())
     n_disconnectable_branches = 4
     disc_idx1, new_disc_id1 = change_disconnected_branch(random_key, disconnections, n_disconnectable_branches)
     disc_idx2, new_disc_id2 = change_disconnected_branch(random_key, disconnections, n_disconnectable_branches)
@@ -79,10 +79,10 @@ def test_change_disconnected_branch_repeatability():
 @pytest.mark.parametrize(
     "disconnections",
     [
-        jnp.array([1, 2, int_max(), int_max()], dtype=int),
-        jnp.array([int_max(), int_max(), int_max(), int_max()], dtype=int),
-        jnp.array([0, int_max(), int_max(), int_max()], dtype=int),
-        jnp.array([2, 3, 4, int_max()], dtype=int),
+        jnp.array([1, 2, int_max(), int_max()], dtype=int_dtype()),
+        jnp.array([int_max(), int_max(), int_max(), int_max()], dtype=int_dtype()),
+        jnp.array([0, int_max(), int_max(), int_max()], dtype=int_dtype()),
+        jnp.array([2, 3, 4, int_max()], dtype=int_dtype()),
     ],
 )
 def test_reconnect_disconnected_branch_valid(random_key, disconnections):
@@ -96,14 +96,14 @@ def test_reconnect_disconnected_branch_valid(random_key, disconnections):
 
 
 def test_reconnect_disconnected_branch_no_disconnected(random_key):
-    disconnections = jnp.array([int_max(), int_max(), int_max()], dtype=int)
+    disconnections = jnp.array([int_max(), int_max(), int_max()], dtype=int_dtype())
     disc_idx, new_disc_id = reconnect_disconnected_branch(random_key, disconnections)
     assert new_disc_id == int_max()
 
 
 def test_reconnect_disconnected_branch_repeatability():
     random_key = jax.random.PRNGKey(123)
-    disconnections = jnp.array([1, int_max(), int_max()], dtype=int)
+    disconnections = jnp.array([1, int_max(), int_max()], dtype=int_dtype())
     disc_idx1, new_disc_id1 = reconnect_disconnected_branch(random_key, disconnections)
     disc_idx2, new_disc_id2 = reconnect_disconnected_branch(random_key, disconnections)
     assert disc_idx1 == disc_idx2
@@ -113,10 +113,10 @@ def test_reconnect_disconnected_branch_repeatability():
 @pytest.mark.parametrize(
     "disconnections,n_disconnectable_branches",
     [
-        (jnp.array([int_max(), int_max(), int_max()], dtype=int), 4),
-        (jnp.array([1, int_max(), int_max()], dtype=int), 3),
-        (jnp.array([0, 1, int_max()], dtype=int), 5),
-        (jnp.array([2, 3, 4, int_max()], dtype=int), 6),
+        (jnp.array([int_max(), int_max(), int_max()], dtype=int_dtype()), 4),
+        (jnp.array([1, int_max(), int_max()], dtype=int_dtype()), 3),
+        (jnp.array([0, 1, int_max()], dtype=int_dtype()), 5),
+        (jnp.array([2, 3, 4, int_max()], dtype=int_dtype()), 6),
     ],
 )
 def test_disconnect_additional_branch_valid(random_key, disconnections, n_disconnectable_branches):
@@ -137,7 +137,7 @@ def test_disconnect_additional_branch_valid(random_key, disconnections, n_discon
 
 
 def test_disconnect_additional_branch_no_available(random_key):
-    disconnections = jnp.array([0, 1, 2], dtype=int)
+    disconnections = jnp.array([0, 1, 2], dtype=int_dtype())
     n_disconnectable_branches = 3
     disc_idx, new_disc_id = disconnect_additional_branch(random_key, disconnections, n_disconnectable_branches)
     assert new_disc_id == int_max()
@@ -145,7 +145,7 @@ def test_disconnect_additional_branch_no_available(random_key):
 
 def test_disconnect_additional_branch_repeatability():
     random_key = jax.random.PRNGKey(123)
-    disconnections = jnp.array([int_max(), int_max(), int_max()], dtype=int)
+    disconnections = jnp.array([int_max(), int_max(), int_max()], dtype=int_dtype())
     n_disconnectable_branches = 4
     disc_idx1, new_disc_id1 = disconnect_additional_branch(random_key, disconnections, n_disconnectable_branches)
     disc_idx2, new_disc_id2 = disconnect_additional_branch(random_key, disconnections, n_disconnectable_branches)
@@ -158,8 +158,8 @@ def test_disconnect_additional_branch_repeatability():
     [
         # Only add allowed, no splits
         (
-            jnp.array([int_max(), int_max()], dtype=int),
-            jnp.array([int_max(), int_max()], dtype=int),
+            jnp.array([int_max(), int_max()], dtype=int_dtype()),
+            jnp.array([int_max(), int_max()], dtype=int_dtype()),
             dict(
                 add_disconnection_prob=1.0,
                 change_disconnection_prob=0.0,
@@ -169,8 +169,8 @@ def test_disconnect_additional_branch_repeatability():
         ),
         # Only change allowed
         (
-            jnp.array([0, int_max()], dtype=int),
-            jnp.array([1, int_max()], dtype=int),
+            jnp.array([0, int_max()], dtype=int_dtype()),
+            jnp.array([1, int_max()], dtype=int_dtype()),
             dict(
                 add_disconnection_prob=0.0,
                 change_disconnection_prob=1.0,
@@ -180,8 +180,8 @@ def test_disconnect_additional_branch_repeatability():
         ),
         # Only remove allowed
         (
-            jnp.array([0, int_max()], dtype=int),
-            jnp.array([1, 2], dtype=int),
+            jnp.array([0, int_max()], dtype=int_dtype()),
+            jnp.array([1, 2], dtype=int_dtype()),
             dict(
                 add_disconnection_prob=0.0,
                 change_disconnection_prob=0.0,
@@ -191,8 +191,8 @@ def test_disconnect_additional_branch_repeatability():
         ),
         # Only remain allowed
         (
-            jnp.array([int_max(), int_max()], dtype=int),
-            jnp.array([int_max(), int_max()], dtype=int),
+            jnp.array([int_max(), int_max()], dtype=int_dtype()),
+            jnp.array([int_max(), int_max()], dtype=int_dtype()),
             dict(
                 add_disconnection_prob=0.0,
                 change_disconnection_prob=0.0,
@@ -202,8 +202,8 @@ def test_disconnect_additional_branch_repeatability():
         ),
         # All allowed, probabilities sum < 1
         (
-            jnp.array([0, int_max()], dtype=int),
-            jnp.array([1, int_max()], dtype=int),
+            jnp.array([0, int_max()], dtype=int_dtype()),
+            jnp.array([1, int_max()], dtype=int_dtype()),
             dict(
                 add_disconnection_prob=0.3,
                 change_disconnection_prob=0.3,
@@ -225,8 +225,8 @@ def test_mutate_disconnections_valid(random_key, sub_ids, disconnections, config
 
 def test_mutate_disconnections_repeatability():
     random_key = jax.random.PRNGKey(42)
-    sub_ids = jnp.array([0, int_max()], dtype=int)
-    disconnections = jnp.array([1, int_max()], dtype=int)
+    sub_ids = jnp.array([0, int_max()], dtype=int_dtype())
+    disconnections = jnp.array([1, int_max()], dtype=int_dtype())
     config = DisconnectionMutationConfig(
         add_disconnection_prob=0.3,
         change_disconnection_prob=0.3,
@@ -243,8 +243,8 @@ def test_mutate_disconnections_repeatability():
     [
         # No splits, only add allowed
         (
-            jnp.array([int_max(), int_max()], dtype=int),
-            jnp.array([int_max(), int_max()], dtype=int),
+            jnp.array([int_max(), int_max()], dtype=int_dtype()),
+            jnp.array([int_max(), int_max()], dtype=int_dtype()),
             dict(
                 add_disconnection_prob=1.0,
                 change_disconnection_prob=0.0,
@@ -254,8 +254,8 @@ def test_mutate_disconnections_repeatability():
         ),
         # Splits present, only remove allowed
         (
-            jnp.array([0, int_max()], dtype=int),
-            jnp.array([1, 2], dtype=int),
+            jnp.array([0, int_max()], dtype=int_dtype()),
+            jnp.array([1, 2], dtype=int_dtype()),
             dict(
                 add_disconnection_prob=0.0,
                 change_disconnection_prob=0.0,
@@ -279,8 +279,8 @@ def test_mutate_disconnections_operation_selection(random_key, sub_ids, disconne
 def test_mutate_disconnections_empty_topology_forces_add():
     # Without another mutable part of the genome, an empty topology is the unchanged base topology,
     # so a disconnection is always added, even though the add probability is low.
-    sub_ids = jnp.array([int_max(), int_max()], dtype=int)
-    disconnections = jnp.array([int_max(), int_max()], dtype=int)
+    sub_ids = jnp.array([int_max(), int_max()], dtype=int_dtype())
+    disconnections = jnp.array([int_max(), int_max()], dtype=int_dtype())
     config = DisconnectionMutationConfig(
         add_disconnection_prob=0.1,
         change_disconnection_prob=0.1,
@@ -294,8 +294,8 @@ def test_mutate_disconnections_empty_topology_forces_add():
 
 def test_mutate_disconnections_allow_empty_topology_can_remain():
     # With PSTs, the empty topology is a meaningful individual, so it does not have to be mutated.
-    sub_ids = jnp.array([int_max(), int_max()], dtype=int)
-    disconnections = jnp.array([int_max(), int_max()], dtype=int)
+    sub_ids = jnp.array([int_max(), int_max()], dtype=int_dtype())
+    disconnections = jnp.array([int_max(), int_max()], dtype=int_dtype())
     config = DisconnectionMutationConfig(
         add_disconnection_prob=0.1,
         change_disconnection_prob=0.1,
@@ -317,8 +317,8 @@ def test_mutate_disconnections_allow_empty_topology_can_remain():
 def test_mutate_disconnections_remove_last_disconnection(random_key, allow_empty_topology):
     # Removing the last disconnection of a topology without splits results in the empty topology,
     # which is only allowed if another part of the genome is mutated as well.
-    sub_ids = jnp.array([int_max(), int_max()], dtype=int)
-    disconnections = jnp.array([1, int_max()], dtype=int)
+    sub_ids = jnp.array([int_max(), int_max()], dtype=int_dtype())
+    disconnections = jnp.array([1, int_max()], dtype=int_dtype())
     config = DisconnectionMutationConfig(
         add_disconnection_prob=0.0,
         change_disconnection_prob=0.0,
@@ -333,8 +333,8 @@ def test_mutate_disconnections_remove_last_disconnection(random_key, allow_empty
 
 
 def test_mutate_disconnections_remain(random_key):
-    sub_ids = jnp.array([int_max(), int_max()], dtype=int)
-    disconnections = jnp.array([int_max(), int_max()], dtype=int)
+    sub_ids = jnp.array([int_max(), int_max()], dtype=int_dtype())
+    disconnections = jnp.array([int_max(), int_max()], dtype=int_dtype())
     config = DisconnectionMutationConfig(
         add_disconnection_prob=0.0,
         change_disconnection_prob=0.0,

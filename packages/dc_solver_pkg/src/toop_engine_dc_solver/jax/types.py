@@ -22,6 +22,34 @@ from toop_engine_dc_solver.jax.utils import HashableArrayWrapper
 from toop_engine_interfaces.types import MetricType
 
 
+def int_dtype() -> jnp.dtype:
+    """Get the canonical integer dtype for the current jax precision mode.
+
+    Use this instead of the builtin ``int`` whenever an integer array is built for jax, i.e.
+    ``jnp.array(x, dtype=int_dtype())`` rather than ``jnp.array(x, dtype=int)``.
+
+    ``numpy`` resolves ``dtype=int`` to the platform's C ``long``: 64 bit on Linux and macOS but
+    **32 bit on Windows**. That silently produces a different grid representation per platform, and
+    two concrete failures:
+
+    - Arrays padded with :func:`int_max` wrap around. The 64 bit sentinel does not fit in an int32,
+      so the "unused slot" marker is stored as ``-1`` instead, which reads back as a plausible
+      negative index rather than an obviously invalid one.
+    - An int32 array meeting an int64 one inside a ``jax.lax.scan`` carry aborts the scan with
+      "carry input and carry output must have equal types".
+
+    ``jnp.int_`` keys off jax's own ``jax_enable_x64`` flag instead of the C ``long``, so it is
+    int64 on every platform when x64 is enabled -- which is what Linux already produced, so results
+    are unchanged there.
+
+    Returns
+    -------
+    jnp.dtype
+        ``jnp.int64`` in 64 bit mode, ``jnp.int32`` in 32 bit mode, on every platform.
+    """
+    return jnp.dtype(jnp.int_)
+
+
 def int_max() -> int:
     """Get the int max depending whether jax runs in 64 or 32 bit mode"""
     return int(jnp.iinfo(jnp.int64).max) if jax.config.read("jax_enable_x64") else int(jnp.iinfo(jnp.int32).max)

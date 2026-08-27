@@ -9,7 +9,7 @@
 
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Int
-from toop_engine_dc_solver.jax.types import ActionSet, RelBBOutageData
+from toop_engine_dc_solver.jax.types import ActionSet, RelBBOutageData, int_dtype
 
 
 def merge_branch_action_sets(  # noqa: PLR0915
@@ -105,7 +105,7 @@ def merge_branch_action_sets(  # noqa: PLR0915
     actions = jnp.concatenate(actions_per_sub, axis=0)
     n_actions_per_sub = jnp.array([len(actions_per_sub[i]) for i in range(n_subs)])
     substation_correspondence = jnp.concatenate(
-        [jnp.full((len(actions_per_sub[i]),), i, dtype=int) for i in range(n_subs)], axis=0
+        [jnp.full((len(actions_per_sub[i]),), i, dtype=int_dtype()) for i in range(n_subs)], axis=0
     )
     reassignment_distance = jnp.concatenate(reassignment_per_sub, axis=0)
     inj_actions = jnp.concatenate(inj_actions_per_sub, axis=0)
@@ -182,10 +182,10 @@ def merge_topologies(
     fake_action_set = ActionSet(
         branch_actions=new_branch_actions,
         substation_correspondence=sub_ids.reshape(-1),
-        n_actions_per_sub=jnp.zeros(action_set.n_actions_per_sub.shape, dtype=int),  # Not actually needed for merge
+        n_actions_per_sub=jnp.zeros(action_set.n_actions_per_sub.shape, dtype=int_dtype()),  # Not actually needed for merge
         unsplit_action_mask=jnp.zeros(new_branch_actions.shape[0], dtype=bool),  # Not actually needed for merge
-        reassignment_distance=jnp.full(new_branch_actions.shape[0], reassignment_distance_fill, dtype=int),
-        action_start_indices=jnp.zeros(action_set.n_actions_per_sub.shape, dtype=int),
+        reassignment_distance=jnp.full(new_branch_actions.shape[0], reassignment_distance_fill, dtype=int_dtype()),
+        action_start_indices=jnp.zeros(action_set.n_actions_per_sub.shape, dtype=int_dtype()),
         inj_actions=jnp.full((new_branch_actions.shape[0], max_inj_per_sub), injection_fill, dtype=bool),
     )
 
@@ -215,10 +215,10 @@ def empty_branch_action_set(
     """
     return ActionSet(
         branch_actions=jnp.zeros((0, max_branch_per_sub), dtype=bool),
-        substation_correspondence=jnp.array([], dtype=int),
-        n_actions_per_sub=jnp.zeros(n_sub_relevant, dtype=int),
+        substation_correspondence=jnp.array([], dtype=int_dtype()),
+        n_actions_per_sub=jnp.zeros(n_sub_relevant, dtype=int_dtype()),
         unsplit_action_mask=jnp.array([], dtype=bool),
-        reassignment_distance=jnp.array([], dtype=int),
-        action_start_indices=jnp.zeros(n_sub_relevant, dtype=int),
+        reassignment_distance=jnp.array([], dtype=int_dtype()),
+        action_start_indices=jnp.zeros(n_sub_relevant, dtype=int_dtype()),
         inj_actions=jnp.zeros((0, max_inj_per_sub), dtype=bool),
     )

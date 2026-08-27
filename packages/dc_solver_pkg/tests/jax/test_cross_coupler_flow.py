@@ -25,6 +25,7 @@ from toop_engine_dc_solver.jax.types import (
     InjectionComputations,
     StaticInformation,
     TopoVectBranchComputations,
+    int_dtype,
     int_max,
 )
 
@@ -181,15 +182,15 @@ def test_compute_cross_coupler_flow_invalid_subid(
     solver_config = static_information.solver_config
 
     act_index_topo = ActionIndexComputations(
-        action=jnp.array([[int_max()]], dtype=int),
+        action=jnp.array([[int_max()]], dtype=int_dtype()),
         pad_mask=jnp.array([True], dtype=bool),
     )
     topo = convert_action_set_index_to_topo(act_index_topo, dynamic_information.action_set)
-    assert jnp.array_equal(topo.sub_ids, jnp.array([[int_max()]], dtype=int))
+    assert jnp.array_equal(topo.sub_ids, jnp.array([[int_max()]], dtype=int_dtype()))
     assert jnp.array_equal(topo.topologies, jnp.zeros_like(topo.topologies))
     injections = InjectionComputations(
         injection_topology=jnp.zeros((1, 1, dynamic_information.max_inj_per_sub), dtype=bool),
-        corresponding_topology=jnp.array([0], dtype=int),
+        corresponding_topology=jnp.array([0], dtype=int_dtype()),
         pad_mask=jnp.array([True], dtype=bool),
     )
 

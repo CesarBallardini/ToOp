@@ -14,7 +14,7 @@ import jax
 import jax.numpy as jnp
 from beartype.typing import Optional
 from jaxtyping import Array, Bool, Int, PRNGKeyArray
-from toop_engine_dc_solver.jax.types import NodalInjOptimResults
+from toop_engine_dc_solver.jax.types import NodalInjOptimResults, int_dtype
 from toop_engine_topology_optimizer.dc.genetic_functions.mutation.config import NodalInjectionMutationConfig
 
 
@@ -23,7 +23,7 @@ def _build_discrete_pst_step_distribution(
 ) -> tuple[Int[Array, " n_steps"], Array]:
     """Build a discrete symmetric step distribution for PST mutations."""
     support_radius = max(1, math.ceil(4 * float(pst_mutation_sigma)))
-    step_support = jnp.arange(-support_radius, support_radius + 1, dtype=int)
+    step_support = jnp.arange(-support_radius, support_radius + 1, dtype=int_dtype())
     sigma = jnp.asarray(pst_mutation_sigma, dtype=jnp.float32)
     weights = jnp.exp(-0.5 * (step_support.astype(jnp.float32) / sigma) ** 2)
     probabilities = weights / jnp.sum(weights)
@@ -101,12 +101,12 @@ def mutate_psts(
             pst_mutation_sigma=pst_mutation_sigma,
         )
         group_mutation = jnp.where(group_indices_to_mutate, mutation_samples, 0)
-        pst_mutation = jnp.einsum("gp,g->p", parallel_pst_group_mask.astype(int), group_mutation)
+        pst_mutation = jnp.einsum("gp,g->p", parallel_pst_group_mask.astype(int_dtype()), group_mutation)
         new_pst_taps = pst_taps + pst_mutation
 
         group_indices_to_reset = jax.random.bernoulli(key=key_reset, p=pst_reset_probability, shape=(n_parallel_groups,))
         pst_indices_to_reset = jnp.einsum(
-            "gp,g->p", parallel_pst_group_mask.astype(int), group_indices_to_reset.astype(int)
+            "gp,g->p", parallel_pst_group_mask.astype(int_dtype()), group_indices_to_reset.astype(int_dtype())
         ).astype(bool)
         new_pst_taps = jnp.where(pst_indices_to_reset, pst_starting_taps, new_pst_taps)
     else:
@@ -214,7 +214,7 @@ def mutate_nodal_injections(
         )
     )(
         random_key=random_key,
-        pst_taps=nodal_inj_info.pst_tap_idx.astype(int),
+        pst_taps=nodal_inj_info.pst_tap_idx.astype(int_dtype()),
     )
 
     return NodalInjOptimResults(pst_tap_idx=new_pst_taps)

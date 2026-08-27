@@ -30,6 +30,7 @@ from toop_engine_dc_solver.jax.types import (
     InjectionComputations,
     StaticInformation,
     TopoVectBranchComputations,
+    int_dtype,
     int_max,
 )
 
@@ -102,7 +103,7 @@ def test_convert_topo_to_action_set_index() -> None:
 
 
 def test_convert_topo_sel_sorted() -> None:
-    branches_per_sub = HashableArrayWrapper(np.array([4, 5, 4], dtype=int))
+    branches_per_sub = HashableArrayWrapper(np.array([4, 5, 4], dtype=int_dtype()))
 
     topo_sel_sorted = np.random.randn(30, 4 + 5 + 4) > 0
 
@@ -130,11 +131,11 @@ def test_default_topology(
 
     topo = default_topology(static_information.solver_config, topo_vect_format=True)
     assert jnp.array_equal(topo.pad_mask, jnp.ones(16, dtype=bool))
-    assert jnp.array_equal(topo.sub_ids, jnp.repeat(jnp.arange(5, dtype=int)[None, :], 16, axis=0))
+    assert jnp.array_equal(topo.sub_ids, jnp.repeat(jnp.arange(5, dtype=int_dtype())[None, :], 16, axis=0))
     assert jnp.array_equal(topo.topologies, jnp.zeros((16, 5, 5), dtype=bool))
 
     topo = default_topology(static_information.solver_config, topo_vect_format=False)
-    assert jnp.array_equal(topo.action, jnp.full((16, 1), int_max(), dtype=int))
+    assert jnp.array_equal(topo.action, jnp.full((16, 1), int_max(), dtype=int_dtype()))
     assert jnp.array_equal(topo.pad_mask, jnp.ones(16, dtype=bool))
 
 
@@ -245,11 +246,11 @@ def test_product_action_set() -> None:
             ],
             dtype=bool,
         ),
-        n_actions_per_sub=jnp.array([3, 4, 3], dtype=int),
-        action_start_indices=jnp.array([0, 3, 7], dtype=int),
-        substation_correspondence=jnp.array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=int),
+        n_actions_per_sub=jnp.array([3, 4, 3], dtype=int_dtype()),
+        action_start_indices=jnp.array([0, 3, 7], dtype=int_dtype()),
+        substation_correspondence=jnp.array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=int_dtype()),
         unsplit_action_mask=jnp.array([True, False, False, True, False, False, False, True, False, False], dtype=bool),
-        reassignment_distance=jnp.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=int),
+        reassignment_distance=jnp.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=int_dtype()),
         inj_actions=jnp.zeros((10, 5), dtype=bool),
     )
 
@@ -323,27 +324,27 @@ def test_extract_sub_ids() -> None:
     )
 
     # Test with batched actions
-    actions_batched = jnp.array([[0, 2], [1, 3]], dtype=int)
+    actions_batched = jnp.array([[0, 2], [1, 3]], dtype=int_dtype())
     sub_ids_batched = extract_sub_ids(actions_batched, branch_actions)
-    expected_sub_ids_batched = jnp.array([[0, 1], [0, 1]], dtype=int)
+    expected_sub_ids_batched = jnp.array([[0, 1], [0, 1]], dtype=int_dtype())
     assert jnp.array_equal(sub_ids_batched, expected_sub_ids_batched)
 
     # Test with unbatched actions
-    actions_unbatched = jnp.array([0, 2], dtype=int)
+    actions_unbatched = jnp.array([0, 2], dtype=int_dtype())
     sub_ids_unbatched = extract_sub_ids(actions_unbatched, branch_actions)
-    expected_sub_ids_unbatched = jnp.array([0, 1], dtype=int)
+    expected_sub_ids_unbatched = jnp.array([0, 1], dtype=int_dtype())
     assert jnp.array_equal(sub_ids_unbatched, expected_sub_ids_unbatched)
 
     # Test with unsplit actions
-    actions_unsplit = jnp.array([[2, 2], [2, 2]], dtype=int)
+    actions_unsplit = jnp.array([[2, 2], [2, 2]], dtype=int_dtype())
     sub_ids_unsplit = extract_sub_ids(actions_unsplit, branch_actions)
-    expected_sub_ids_unsplit = jnp.array([[1, 1], [1, 1]], dtype=int)
+    expected_sub_ids_unsplit = jnp.array([[1, 1], [1, 1]], dtype=int_dtype())
     assert jnp.array_equal(sub_ids_unsplit, expected_sub_ids_unsplit)
 
     # Test with invalid actions
-    actions_invalid = jnp.array([[12345, 3], [12345, 2]], dtype=int)
+    actions_invalid = jnp.array([[12345, 3], [12345, 2]], dtype=int_dtype())
     sub_ids_invalid = extract_sub_ids(actions_invalid, branch_actions)
-    expected_sub_ids_invalid = jnp.array([[int_max(), 1], [int_max(), 1]], dtype=int)
+    expected_sub_ids_invalid = jnp.array([[int_max(), 1], [int_max(), 1]], dtype=int_dtype())
     assert jnp.array_equal(sub_ids_invalid, expected_sub_ids_invalid)
 
 
@@ -364,11 +365,11 @@ def test_pad_action_with_unsplit_action_indices() -> None:
             ],
             dtype=bool,
         ),
-        n_actions_per_sub=jnp.array([3, 4, 3], dtype=int),
-        action_start_indices=jnp.array([0, 3, 7], dtype=int),
-        substation_correspondence=jnp.array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=int),
+        n_actions_per_sub=jnp.array([3, 4, 3], dtype=int_dtype()),
+        action_start_indices=jnp.array([0, 3, 7], dtype=int_dtype()),
+        substation_correspondence=jnp.array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2], dtype=int_dtype()),
         unsplit_action_mask=jnp.array([True, False, False, True, False, False, False, True, False, False], dtype=bool),
-        reassignment_distance=jnp.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=int),
+        reassignment_distance=jnp.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=int_dtype()),
         inj_actions=jnp.zeros((10, 5), dtype=bool),
         rel_bb_outage_data=None,
     )

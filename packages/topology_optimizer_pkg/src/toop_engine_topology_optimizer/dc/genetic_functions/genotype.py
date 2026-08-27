@@ -12,7 +12,7 @@ import jax
 import jax.numpy as jnp
 from beartype.typing import Optional
 from jaxtyping import Array, Int
-from toop_engine_dc_solver.jax.types import NodalInjOptimResults, int_max
+from toop_engine_dc_solver.jax.types import NodalInjOptimResults, int_dtype, int_max
 
 
 class Genotype(eqx.Module):
@@ -52,7 +52,7 @@ def deduplicate_genotypes(
         The indices of the unique genotypes
     """
     if genotypes.action_index.shape[0] == 0:
-        return genotypes, jnp.array([], dtype=int)
+        return genotypes, jnp.array([], dtype=int_dtype())
 
     # Use the action indices and the disconnections for the uniqueness check.
     genotype_parts = [
@@ -87,6 +87,11 @@ def fix_dtypes(genotypes: Genotype) -> Genotype:
 
     For some reason, qdax aggressively converts everything to float
 
+    Every integer field is normalized to :func:`int_dtype`, including the PST taps. They are part of
+    the map-elites repertoire and therefore of the ``jax.lax.scan`` carry, so leaving them on a
+    different width than the fields around them aborts the scan with "carry input and carry output
+    must have equal types".
+
     Parameters
     ----------
     genotypes : Genotype
@@ -97,10 +102,16 @@ def fix_dtypes(genotypes: Genotype) -> Genotype:
     Genotype
         The genotypes with fixed dtypes
     """
+    nodal_injections_optimized = genotypes.nodal_injections_optimized
+    if nodal_injections_optimized is not None:
+        nodal_injections_optimized = NodalInjOptimResults(
+            pst_tap_idx=nodal_injections_optimized.pst_tap_idx.astype(int_dtype())
+        )
+
     return Genotype(
-        action_index=genotypes.action_index.astype(int),
-        disconnections=genotypes.disconnections.astype(int),
-        nodal_injections_optimized=genotypes.nodal_injections_optimized,
+        action_index=genotypes.action_index.astype(int_dtype()),
+        disconnections=genotypes.disconnections.astype(int_dtype()),
+        nodal_injections_optimized=nodal_injections_optimized,
     )
 
 
@@ -133,14 +144,16 @@ def empty_repertoire(
         The initial genotype
     """
     if starting_taps is not None:
+        # jnp.tile preserves the input width, so normalize rather than inherit whatever dtype the
+        # static information was built with. See int_dtype.
         nodal_injections_optimized = NodalInjOptimResults(
-            pst_tap_idx=jnp.tile(starting_taps[None, None, :], (batch_size, n_timesteps, 1))
+            pst_tap_idx=jnp.tile(starting_taps[None, None, :].astype(int_dtype()), (batch_size, n_timesteps, 1))
         )
     else:
         nodal_injections_optimized = None
 
     return Genotype(
-        action_index=jnp.full((batch_size, max_num_splits), int_max(), dtype=int),
-        disconnections=jnp.full((batch_size, max_num_disconnections), int_max(), dtype=int),
+        action_index=jnp.full((batch_size, max_num_splits), int_max(), dtype=int_dtype()),
+        disconnections=jnp.full((batch_size, max_num_disconnections), int_max(), dtype=int_dtype()),
         nodal_injections_optimized=nodal_injections_optimized,
     )

@@ -25,6 +25,7 @@ from toop_engine_dc_solver.jax.types import (
     BBOutageBaselineAnalysis,
     NonRelBBOutageData,
     RelBBOutageData,
+    int_dtype,
     int_max,
 )
 
@@ -558,7 +559,7 @@ def perform_rel_bb_outage_for_unsplit_grid(
     # for each relevant substation.
     action_indices = pad_action_with_unsplit_action_indices(
         action_set,
-        jnp.full((1,), int_max(), dtype=int),
+        jnp.full((1,), int_max(), dtype=int_dtype()),
     )
 
     lfs_list, success = perform_rel_bb_outage_single_topo(

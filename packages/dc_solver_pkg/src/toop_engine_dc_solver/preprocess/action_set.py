@@ -32,7 +32,7 @@ from jaxtyping import Array, ArrayLike, Bool, Float, Int
 from toop_engine_dc_solver.jax.bsdf import calc_bsdf, update_from_to_node
 from toop_engine_dc_solver.jax.lodf import calc_lodf_matrix
 from toop_engine_dc_solver.jax.multi_outages import build_modf_matrices
-from toop_engine_dc_solver.jax.types import ActionSet
+from toop_engine_dc_solver.jax.types import ActionSet, int_dtype
 from toop_engine_dc_solver.preprocess.helpers.ptdf import (
     get_extended_ptdf,
 )
@@ -657,23 +657,23 @@ def pad_out_action_set(
     if not branch_actions:
         return ActionSet(
             branch_actions=jnp.zeros((0, 0), dtype=bool),
-            n_actions_per_sub=jnp.zeros((0,), dtype=int),
-            substation_correspondence=jnp.zeros((0,), dtype=int),
+            n_actions_per_sub=jnp.zeros((0,), dtype=int_dtype()),
+            substation_correspondence=jnp.zeros((0,), dtype=int_dtype()),
             unsplit_action_mask=jnp.zeros((0,), dtype=bool),
-            reassignment_distance=jnp.zeros((0,), dtype=int),
-            action_start_indices=jnp.zeros((0,), dtype=int),
+            reassignment_distance=jnp.zeros((0,), dtype=int_dtype()),
+            action_start_indices=jnp.zeros((0,), dtype=int_dtype()),
             inj_actions=jnp.zeros((0, 0), dtype=bool),
             rel_bb_outage_data=None,
         )
 
-    n_actions_per_sub = jnp.array([ba.shape[0] for ba in branch_actions], dtype=int)
+    n_actions_per_sub = jnp.array([ba.shape[0] for ba in branch_actions], dtype=int_dtype())
     max_branches_per_sub = max(ba.shape[1] for ba in branch_actions)
     max_injections_per_sub = max(ia.shape[1] for ia in injection_actions)
     total_actions = sum(n_actions_per_sub)
 
     padded_branch_actions = np.zeros((total_actions, max_branches_per_sub), dtype=bool)
     padded_injection_actions = np.zeros((total_actions, max_injections_per_sub), dtype=bool)
-    padded_reassignments = np.zeros((total_actions,), dtype=int)
+    padded_reassignments = np.zeros((total_actions,), dtype=int_dtype())
     index = 0
     for sub_id in range(len(branch_actions)):
         action = branch_actions[sub_id]
@@ -686,7 +686,7 @@ def pad_out_action_set(
         padded_reassignments[index : index + action.shape[0]] = reassignment
         index += action.shape[0]
 
-    substation_correspondence = np.repeat(np.arange(len(branch_actions)), n_actions_per_sub)
+    substation_correspondence = np.repeat(np.arange(len(branch_actions), dtype=int_dtype()), n_actions_per_sub)
     unsplit_action_mask = ~jnp.any(padded_branch_actions, axis=1)
 
     branch_set = ActionSet(

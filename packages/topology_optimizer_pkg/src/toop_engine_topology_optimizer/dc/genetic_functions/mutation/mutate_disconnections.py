@@ -10,7 +10,7 @@
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Int, PRNGKeyArray
-from toop_engine_dc_solver.jax.types import int_max
+from toop_engine_dc_solver.jax.types import int_dtype, int_max
 from toop_engine_topology_optimizer.dc.genetic_functions.mutation.config import DisconnectionMutationConfig
 from toop_engine_topology_optimizer.dc.genetic_functions.mutation.utils import (
     do_nothing,
@@ -75,7 +75,7 @@ def reconnect_disconnected_branch(
     random_index_key = random_key
     is_disconnected = disconnections != int_max_value
     disc_idx = get_random_true_idx(random_index_key, is_disconnected, int_max_value)
-    return disc_idx, jnp.array(int_max_value, dtype=int)
+    return disc_idx, jnp.array(int_max_value, dtype=int_dtype())
 
 
 def disconnect_additional_branch(

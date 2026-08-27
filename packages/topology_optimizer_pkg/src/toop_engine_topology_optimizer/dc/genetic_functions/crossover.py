@@ -16,7 +16,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, Bool, Float, Int, PRNGKeyArray
 from toop_engine_dc_solver.jax.topology_computations import extract_sub_ids
-from toop_engine_dc_solver.jax.types import ActionSet, int_max
+from toop_engine_dc_solver.jax.types import ActionSet, int_dtype, int_max
 from toop_engine_topology_optimizer.dc.genetic_functions.genotype import Genotype
 
 
@@ -47,7 +47,7 @@ def sample_unique_from_array(
         The sampled indices into sample_pool
     """
     if n_samples == 0 or sample_pool.shape[0] == 0:
-        return jnp.full((n_samples,), int_max(), dtype=int)
+        return jnp.full((n_samples,), int_max(), dtype=int_dtype())
 
     subkeys = jax.random.split(random_key, n_samples)
 
@@ -85,7 +85,7 @@ def sample_unique_from_array(
         upper=n_samples,
         body_fun=_body_fn,
         init_val=(
-            jnp.full((n_samples,), int_max(), dtype=int),
+            jnp.full((n_samples,), int_max(), dtype=int_dtype()),
             jnp.ones(sample_pool.shape, dtype=bool),
         ),
         unroll=True,

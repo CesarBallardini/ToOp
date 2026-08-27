@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 
 import chex
-import docker
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -20,7 +19,6 @@ import pypowsybl
 import pytest
 from beartype.typing import Generator, Literal, Union
 from confluent_kafka import Consumer, Producer
-from docker import DockerClient
 from docker.models.containers import Container
 from fsspec.implementations.dirfs import DirFileSystem
 from jaxtyping import Int
@@ -37,7 +35,7 @@ from toop_engine_dc_solver.example_grids import (
     oberrhein_data,
     three_node_pst_example_folder_powsybl,
 )
-from toop_engine_dc_solver.jax.types import ActionSet, StaticInformation
+from toop_engine_dc_solver.jax.types import ActionSet, StaticInformation, int_dtype
 from toop_engine_dc_solver.preprocess import load_grid
 from toop_engine_dc_solver.preprocess.network_data import NetworkData
 from toop_engine_grid_helpers.powsybl.loadflow_parameters import CGMES_DISTRIBUTED_SLACK
@@ -48,6 +46,9 @@ from toop_engine_interfaces.nminus1_definition import Nminus1Definition, load_nm
 from toop_engine_topology_optimizer.ac.storage import ACOptimTopology, create_session
 from toop_engine_topology_optimizer.interfaces.messages.commons import Framework, GridFile, OptimizerType
 from toop_engine_topology_optimizer.interfaces.models.base_storage import hash_topo_data
+
+import docker
+from docker import DockerClient
 
 config = pandera.config.PanderaConfig(
     validation_enabled=True, validation_depth=pandera.config.ValidationDepth.SCHEMA_AND_DATA
@@ -675,7 +676,7 @@ def _synthetic_action_set(
             unsplit_mask.append(is_unsplit)
 
     n_total_actions = n_subs * n_actions_per_sub
-    n_actions_per_sub_array = jnp.full((n_subs,), n_actions_per_sub, dtype=int)
+    n_actions_per_sub_array = jnp.full((n_subs,), n_actions_per_sub, dtype=int_dtype())
 
     return ActionSet(
         branch_actions=jnp.array(branch_actions, dtype=bool),
@@ -687,9 +688,9 @@ def _synthetic_action_set(
                 jnp.cumsum(n_actions_per_sub_array[:-1]),
             ]
         ),
-        substation_correspondence=jnp.array(substation_correspondence, dtype=int),
+        substation_correspondence=jnp.array(substation_correspondence, dtype=int_dtype()),
         unsplit_action_mask=jnp.array(unsplit_mask, dtype=bool),
-        reassignment_distance=jnp.arange(n_total_actions, dtype=int),
+        reassignment_distance=jnp.arange(n_total_actions, dtype=int_dtype()),
     )
 
 

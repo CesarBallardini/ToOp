@@ -27,6 +27,7 @@ from toop_engine_dc_solver.jax.types import (
     SolverConfig,
     SolverLoadflowResults,
     StaticInformation,
+    int_dtype,
     int_max,
 )
 from toop_engine_dc_solver.preprocess.convert_to_jax import DynamicInformationStats, extract_dynamic_information_stats
@@ -646,8 +647,8 @@ def _chunk_to_topologies(
     tuple[ActionIndexComputations, Int[Array, " chunk_size n_disconnections"]]
         Padded action-index topologies and aligned disconnections.
     """
-    action_index = np.full((chunk_size, max_num_splits), int_max(), dtype=int)
-    disconnections = np.full((chunk_size, max_num_disconnections), int_max(), dtype=int)
+    action_index = np.full((chunk_size, max_num_splits), int_max(), dtype=int_dtype())
+    disconnections = np.full((chunk_size, max_num_disconnections), int_max(), dtype=int_dtype())
     pad_mask = np.zeros(chunk_size, dtype=bool)
 
     for row_index, entry in enumerate(chunk):

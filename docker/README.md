@@ -128,13 +128,53 @@ export PYTEST_ADDOPTS="-o cache_dir=$HOME/.cache/toop-pytest-win"
 ```
 
 `PYTHONPYCACHEPREFIX` is read once at interpreter startup, so setting it from `conftest.py` or
-`[tool.pytest_env]` is too late — it has to be in the environment before `python` starts.
+`[tool.pytest_env]` is too late — it has to be in the environment before `python` starts. Exporting
+it in the same command as `pytest` is fine; exporting it *after* launching is not.
 
 If the tree is already cross-contaminated, clear it once:
 
 ```bash
 find packages -name '__pycache__' -type d -exec rm -rf {} + && rm -rf .pytest_cache
 ```
+
+Note the cleanup is one-time — it removes what is there, but only the exports stop it coming back.
+
+### The full Git Bash session setup
+
+Everything above, plus the two variables the rest of this document asks for separately. This is the
+exact preamble used to produce the native-Windows figures quoted here and in
+[`FIXES.md`](../FIXES.md):
+
+```bash
+export MSYS_NO_PATHCONV=1                                          # docker paths (see above)
+export PYTEST_ADDOPTS="-o cache_dir=$HOME/.cache/toop-pytest-win"  # keep pytest's cache off the mount
+export PYTHONPYCACHEPREFIX="$HOME/.cache/toop-pycache-win"         # keep .pyc off the mount
+export CLEANUP_RAY_AFTER_TESTS=true                                # avoid Ray leaks between runs
+
+find packages -name '__pycache__' -type d -exec rm -rf {} + && rm -rf .pytest_cache
+
+time uv run pytest \
+  packages/interfaces_pkg/tests packages/grid_helpers_pkg/tests \
+  packages/dc_solver_pkg/tests packages/contingency_analysis_pkg/tests \
+  packages/importer_pkg/tests packages/topology_optimizer_pkg/tests \
+  -n 4 --dist loadgroup --max-worker-restart=0 -q -p no:randomly --tb=line -rf
+```
+
+`MSYS_NO_PATHCONV=1` is harmless for a native run — it only matters once you also issue `docker`
+commands in the same shell, which is the usual case when comparing the two sides.
+
+The container equivalent needs none of the cache variables (the image sets them) but does want the
+same Ray setting:
+
+```bash
+docker compose exec -T -e CLEANUP_RAY_AFTER_TESTS=true toop uv run pytest <same arguments>
+```
+
+**Run the two sides one at a time.** `-n 4` on each is 8 workers plus Ray and JAX on one machine, and
+the suites contain `xdist_group("performance")`, `"ray"` and `"kafka"` tests that are serialized
+precisely because they are timing-sensitive. A contended run produces failures that are artefacts of
+load rather than of the code — and those are the tests most likely to flake, which defeats the
+purpose of running both.
 
 **Prefer an explicit `-n <N>` over `-n auto` here.** CI uses `-n auto` on a dedicated runner; inside
 WSL2 on a laptop it starts one worker per core, each loading its own JAX runtime, which can easily
@@ -146,6 +186,60 @@ and raising the WSL2 memory limit (below) is worthwhile.
 
 `--dist loadgroup` is mandatory whenever `-n` is used: Kafka, Ray and performance tests are
 serialized through `@pytest.mark.xdist_group` and will interfere with each other otherwise.
+
+### Pass `--max-worker-restart=0`, or a crash can hang the run forever
+
+Diagnosed here twice on native Windows. The chain:
+
+1. A memory-heavy test exhausts memory and its worker dies -- reported as
+   `[gwN] node down: Not properly terminated`, with no traceback, because the process never got to
+   report anything.
+2. xdist spawns a replacement.
+3. **Under that same memory pressure the replacement often fails to initialise.** It sits at ~4.5 MB
+   working set, never loading Python properly.
+4. The controller then blocks forever waiting for a worker that will never report.
+
+Each replacement is a fresh process that reloads JAX, so the recovery attempt adds pressure to the
+condition that caused the crash. The deadlock signature:
+
+```
+controller       loop_once (xdist/dsession.py:154) -> queue.get()   # waiting for a worker
+all N workers    get (xdist/remote.py:90)                           # waiting for a test
+```
+
+Nobody is running a test, and the only process using CPU is Ray's `log_monitor` polling. Diagnose
+with `py-spy` (`uv tool install py-spy`, then `py-spy dump --pid <pid>`): the giveaway is a process
+whose parent is the controller, started minutes after the others, at a few MB of working set, which
+py-spy cannot read at all. That is the stillborn replacement.
+
+**When it does not deadlock it is still lying to you.** If the replacement happens to come up, the
+run completes and the only trace is a worker id higher than `-n` implies -- a `gw4` or `gw5` in a
+`-n 4` run. Whether a memory-pressured run hangs or quietly survives is a coin flip.
+
+With `--max-worker-restart=0` the same crash ends the run at once and names the test that killed the
+worker.
+
+Three tests are known to do this, and they are the three heaviest in the suite:
+
+| Test | Package |
+|---|---|
+| `test_stored_action_set_performance.py::test_stored_action_set_large_performance` | `interfaces_pkg` |
+| `test_action_set.py::test_make_action_repo_large@performance` | `dc_solver_pkg` |
+| `test_evolution_functions.py::test_mutate_on_same_repository_with_different_keys` | `topology_optimizer_pkg` |
+
+**All three pass on an idle machine** (157 s and 290 s for the two slowest), and the full six-package
+run then completes in 34 m rather than 1 h 44 m. They die only when a *second* suite is competing for
+memory on the same host -- a 4-worker run on each side is 8 JAX processes plus Ray. The same is true
+of `jax/benchmarks/test_bench_postprocessing.py::test_main`, long known to OOM under `-n 4` and pass
+alone.
+
+**So the first rule is: do not run the native and container suites at the same time.** If you must,
+or if the machine is small, lower the parallelism or split the heavy group out:
+
+```bash
+uv run pytest <paths> -n 4 --dist loadgroup --max-worker-restart=0 -m "not performance"
+uv run pytest <paths> -p no:randomly -m performance          # serially
+```
 
 Measured result of the command above on a 13.58 GB VM: **491 passed, 1 failed, 8 skipped, 2 xfailed
 in 13:41**. The one failure is `jax/benchmarks/test_bench_postprocessing.py::test_main`, which dies

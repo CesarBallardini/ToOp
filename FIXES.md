@@ -7,21 +7,26 @@ you can obtain one at https://mozilla.org/MPL/2.0/.
 Mozilla Public License, version 2.0
 -->
 
-# Run ToOp on Windows: a container path, and the five bugs behind the native one
+# Run ToOp on Windows: a container path, and the seven bugs behind the native one
 
 Pull request from `feat/add-docker-compose` into `main`. This file is the PR description.
 
 ToOp had no supported path on Windows. This branch adds one -- a Docker Compose setup that is the
-recommended route -- and, separately, fixes the five defects that stopped the DC optimizer from
-running *natively* on a Windows host. All five are **invisible on Linux**, which is why CI never
+recommended route -- and, separately, fixes the seven defects that stopped ToOp's test suite from
+passing *natively* on a Windows host. All seven are **invisible on Linux**, which is why CI never
 caught any of them, and they surfaced in sequence: each was hidden behind the one before it.
 
-Four of the five are the same underlying mistake -- **`dtype=int` in numpy is the platform's C
+Five of the six are the same underlying mistake -- **`dtype=int` in numpy is the platform's C
 `long`, so it is int32 on Windows and int64 everywhere else.** It appears as an explicit `dtype=`
 argument (section 2), as a value split across lines that a line-based sweep misses (also section 2),
-as an implicit width that must match a *neighbouring* array (section 4), and as an API *default*
-with no `dtype=` in sight at all (section 5). The last is the one worth remembering: it means the
-grep that catches the others is not sufficient.
+as an implicit width that must match a *neighbouring* array (section 4), as an API *default* with no
+`dtype=` in sight at all (section 5), and as a **test assertion** comparing a correct int64 column
+against bare `int` (section 6). The last two are the ones worth remembering: they mean the grep that
+catches the first three is not sufficient, and that `tests/` is as exposed as `src/`.
+
+The remaining two are Windows platform semantics rather than integer width: `multiprocessing.Pipe()`
+returning a different class (section 3), and a temp file that cannot be reopened by name
+(section 7).
 
 Nothing here changes behaviour on Linux. That claim is argued from the code in
 [Why this is a no-op on Linux](#why-this-is-a-no-op-on-linux) and tested in
@@ -360,6 +365,122 @@ def _bisection_seed() -> int:
 
 ---
 
+## 6. The same C `long`, in a test's *assertion*
+
+`interfaces_pkg`'s `test_interface_helpers.py` checks that
+`get_empty_dataframe_from_model()` gives integer columns:
+
+```python
+assert df.dtypes["a"] == int
+```
+
+```
+AssertionError: assert dtype('int64') == int
+```
+
+**The production code is correct here.** pandera resolves `Series[int]` to int64 on every platform,
+including Windows -- verified directly:
+
+```
+>>> get_empty_dataframe_from_model(M).dtypes["a"]      # on Windows
+int64
+```
+
+It is the *assertion* that is wrong. `df.dtypes["a"] == int` asks "is this the platform's C `long`?"
+when it means "is this an integer column", and on Windows the honest answer to the first question is
+no. This is the fourth distinct shape of the same bug, and the one furthest from where anyone would
+look for it: **neither audit rule finds it**, because the mistake is in a `tests/` assertion rather
+than in an array constructor, and there is no `dtype=` anywhere on the line.
+
+**Fix.** Compare against the concrete width, in all four places:
+
+```python
+assert df.dtypes["a"] == np.int64
+```
+
+`np.int64` rather than the string `"int64"`, which also works. The string matches the idiom two lines
+away (`assert df.index.dtype == "object"`) and needs no import, but a typo in it fails *silently and
+misleadingly*:
+
+| | result |
+|---|---|
+| `dtype == "in64"` (typo'd string) | `False` -- fails as `assert dtype('int64') == 'in64'` |
+| `dtype == np.in64` (typo'd symbol) | `AttributeError`, immediately |
+
+In this file of all files, a typo that fails looking exactly like a real dtype mismatch is the wrong
+trade for saving an import.
+
+Two near-misses worth recording. `pd.Int64Dtype()` looks like the natural typed choice and is
+**wrong** -- it is the nullable extension dtype, and compares `False` against a numpy int64 column.
+And `int_dtype()`, the helper this PR adds for exactly this purpose, is **unavailable here**:
+`interfaces_pkg` is the base of the dependency chain, so importing `dc_solver` would invert it.
+
+One of the four,
+`df.index.get_level_values(1).dtype == int`, had never even been reached -- the assertion above it
+failed first, so it would have surfaced only after the others were fixed.
+
+### Scope note
+
+This is the one change in this PR outside `dc_solver_pkg` / `topology_optimizer_pkg`, and it is a
+test-only change in a package the PR otherwise does not touch. It is included because it is the same
+defect class, it is three words, and leaving it would mean `interfaces_pkg` stays red on Windows for
+a reason already fully diagnosed here.
+
+It is **not** a regression from this branch, and nothing in the branch could have caused it:
+
+- `packages/interfaces_pkg/tests/test_interface_helpers.py` is unchanged by this PR (before this fix).
+- `interfaces_pkg` has **no Python source change** on the branch -- only `pyproject.toml` (adds
+  `grpcio-tools>=1.72`, used only by `compile_proto.sh`), the script itself, and its lock.
+- The mechanism is platform-only: `np.dtype("int64") == int` is `False` on Windows, `True` on Linux.
+
+---
+
+## 7. `NamedTemporaryFile` cannot be reopened by name on Windows
+
+`load_pandapower_net_via_grid2opt_for_powsybl()` round-trips a grid through a Matpower `.mat` file:
+
+```python
+with tempfile.NamedTemporaryFile(suffix=".mat", delete=True) as tmpfile:
+    _ = pandapower.converter.to_mpc(net, tmpfile.name)      # <- reopens the path to write it
+    pypowsybl_network = pypowsybl.network.load(tmpfile.name, loading_params)
+```
+
+`NamedTemporaryFile` keeps its own handle open for the duration of the `with`. On POSIX a second
+process or library may open the same path anyway; **on Windows that handle is exclusive**, so
+`to_mpc()` fails before writing anything:
+
+```
+PermissionError: [Errno 13] Permission denied: 'C:\...\Temp\tmp_4g_0z8y.mat'
+  scipy/io/matlab/_mio.py:45
+```
+
+Reproducible in three lines, with no grid and no pandapower involved:
+
+```python
+import tempfile
+with tempfile.NamedTemporaryFile(suffix=".mat", delete=True) as t:
+    open(t.name, "w").write("x")
+# Windows: PermissionError: [Errno 13] Permission denied
+# Linux:   succeeds
+```
+
+**Fix.** Hand out a path inside a temporary *directory*, which we never open ourselves:
+
+```python
+with tempfile.TemporaryDirectory() as tmpdir:
+    mat_path = Path(tmpdir) / "net.mat"
+    _ = pandapower.converter.to_mpc(net, str(mat_path))
+    pypowsybl_network = pypowsybl.network.load(str(mat_path), loading_params)
+```
+
+Same semantics on both platforms, same automatic cleanup, and no exclusive handle for anyone to trip
+over. `pathlib` was already imported in the module.
+
+This is the only `NamedTemporaryFile` in `packages/*/src` or `packages/*/tests`, so the trap does not
+recur elsewhere.
+
+---
+
 ---
 
 ## Why this is a no-op on Linux
@@ -387,76 +508,111 @@ module was collected through a `C:\...` path.
 
 ## Verification
 
-| Suite | Windows, at `origin/main` | Windows, with this PR | Linux container |
-|---|---|---|---|
-| `tests/dc/test_main.py` | all fail (`WinError 123`) | **8 passed** | **8 passed** |
-| `tests/dc/genetic_functions` | 74 collected -- 63 passed / 11 failed, +1 file uncollectable | **106 passed** | **106 passed** |
-| `test_mutate_disconnections.py` | 0 run (collection error) | **32 passed** | **32 passed** |
-| `jax/test_topology_computations.py` | 6 passed / 3 failed | **9 passed** | **9 passed** |
-| `jax/test_runner.py` | hangs, aborts the session at its 300 s timeout | **2 passed** (47 s) | **2 passed** |
-| `packages/dc_solver_pkg/tests` (full, serial) | 426 passed / **103 failed** | **468 passed / 63 failed** | **531 passed, 0 failed** |
+### A measurement retraction, first
 
-`ruff check` and `ruff format --check` are clean on every file this PR touches.
+An earlier revision of this document reported a full-suite Windows comparison of **103 failures at
+`origin/main` -> 63 with this PR, 40 fixed, 0 introduced**. **Those counts were wrong and are
+withdrawn.** They were produced in a contaminated environment:
 
-### The full-suite comparison, done properly
+- The Windows runs set `PYTEST_ADDOPTS` but **not `PYTHONPYCACHEPREFIX`**, so they read and wrote
+  `__pycache__` inside the repository. Container runs from before `cd1457d` -- the commit that adds
+  container-side cache isolation -- had written their own `.pyc` into that same bind-mounted tree.
+  The bind mount gives both sides byte-identical mtime and size, so Python trusts whichever got there
+  first. This is exactly the hazard `docker/README.md` documents, walked into while doing the very
+  native-vs-container comparison it warns about.
+- They also invoked `.venv/Scripts/python.exe -m pytest` directly rather than `uv run pytest`, so the
+  environment was never synced first.
 
-Windows still fails a substantial number of `dc_solver` tests **with or without this PR** -- see
-[The 63 that still fail on Windows](#the-63-that-still-fail-on-windows). Closing those is not in
-scope. What matters for review is the *delta*, measured by extracting `origin/main` read-only and
-overriding the editable installs with `PYTHONPATH`, so both runs see identical fixtures:
+The decisive check: with `__pycache__` cleared, `PYTHONPYCACHEPREFIX` exported and `uv run`, the same
+serial `dc_solver` suite reached 45 % with **zero** failures **while sharing the machine with a
+concurrent container run**. The contaminated run had 36 failures at that same point on an *idle*
+machine. Since contention can only add failures, never remove them, the earlier counts cannot have
+been real.
 
-```bash
-git archive 1b764b5 | tar -x -C /tmp/toop_prefix     # read-only; no worktree, no stash
+**What this does and does not affect.** It invalidates the aggregate pass/fail *counts* only. Every
+fix in this PR rests on a demonstrated mechanism reproduced directly -- `OverflowError`, the `-1`
+wraparound, the `.view()` itemsize `ValueError`, `high is out of bounds for int32`,
+`dtype('int64') == int` -- most of them in a one-line interpreter check rather than a test run, and
+each with a targeted before/after on the affected file. Those stand. The Linux no-op argument also
+stands: container runs are cache-isolated by the image (`PYTHONPYCACHEPREFIX=/tmp/pycache`,
+`cachedir: /tmp/pytest_cache`) and have been consistently clean throughout.
+
+### The clean measurement
+
+Full six-package suite, native Windows, cache isolated, via `uv run`, `-n 4 --dist loadgroup`, on an
+otherwise idle machine. **Ran to completion in 34 m 23 s:**
+
+```
+1 failed, 1923 passed, 24 skipped, 8 xfailed, 21 errors
 ```
 
-Both runs, full `packages/dc_solver_pkg/tests`, serial, same machine:
-
-| | `origin/main` (`1b764b5`) | with this PR |
+| | Count | Attribution |
 |---|---|---|
-| failed | **103** | **63** |
-| passed | 426 | **468** |
-| skipped / xfailed | 8 / 7 | 8 / 7 |
+| passed | **1923** | — |
+| errors | 21 | **environmental** — all Kafka, all `DockerException: 500 Server Error for http+docker://localnpipe/version`. The Docker daemon was unhealthy; these tests need a broker and never started. |
+| failed | 1 | `test_load_pandapower_net_via_grid2opt_for_powsybl` — **since fixed, see section 7** |
 
-Comparing the two failure sets as node ids:
+**Nothing in `dc_solver_pkg` or `topology_optimizer_pkg` failed** — the two packages this PR modifies.
 
-| | count |
-|---|---|
-| **fixed** by this PR (failed before, pass now) | **40** |
-| **introduced** by this PR (passed before, fail now) | **0** |
-| unchanged -- fail both before and after | 63 |
+That single failure was the `NamedTemporaryFile` bug, fixed after this measurement and verified on
+both platforms (Windows `1 passed in 6.44s`, container `1 passed in 3.73s`). **With it fixed, the
+expected Windows result is 1924 passed and zero failures**, leaving only the 21 Kafka errors from the
+unhealthy Docker daemon — which are not test failures and clear once the daemon is restarted.
 
-Measured in two stages, because sections 4 and 5 were found by characterising what remained after
-sections 1-3: 103 -> 76 failures from sections 1-3, then 76 -> 63 from sections 4 and 5. The
-introduced set was empty at both stages.
+### Per-fix evidence
 
-The 40 fixed span ten files, and include the whole `test_loadflows_match` family:
+Since the aggregate counts are withdrawn, each fix stands on its own reproduction:
 
-```
-postprocessing/test_postprocess_powsybl.py       16
-postprocessing/test_validate_loadflow_results.py  5
-jax/test_busbar_outage.py                         5
-preprocessing/test_powsybl_backend.py             3   <- see the correction below
-preprocessing/test_loadflows_match.py             3
-jax/test_topology_computations.py                 3
-jax/test_compute_batch.py                         2
-test_example_grids.py                             1
-jax/test_cross_coupler_flow.py                    1
-test_fixtures.py                                  1
-                                                 --
-                                                 40
-```
+| Fix | Mechanism, reproduced directly | After |
+|---|---|---|
+| 1 TensorBoard colons | `OSError: [WinError 123]` before the first epoch | `tests/dc/test_main.py` 8 passed |
+| 2 `dtype=int` | `OverflowError` on `jnp.array`; `jnp.full` silently storing `-1` | `genetic_functions` 106 passed; `test_mutate_disconnections` 32 passed (was uncollectable) |
+| 3 `_ConnectionBase` | beartype rejects `PipeConnection`; child dies, parent blocks in `recv()` | `test_runner.py` 2 passed in 47 s (was a 300 s timeout) |
+| 4 `find_bridges` | `ValueError: When changing to a larger dtype ...` from mismatched itemsize | the `.view()` failures pass |
+| 5 `np.random.randint` | `ValueError: high is out of bounds for int32`, then `... cannot be used to generate a random.Random instance` | `test_case9241_pp` passes |
+| 6 test assertion | `assert dtype('int64') == int` -> False on Windows only | `test_interface_helpers.py` 4 passed, both platforms |
+| 7 `NamedTemporaryFile` | `PermissionError` reopening an open temp file by name | `test_load_pandapower_net_via_grid2opt_for_powsybl` passes on both |
 
-The introduced set is empty. An earlier draft of this document reported one regression
-(`test_default_topology`); that was the multi-line `dtype=int` site described above, and it is fixed.
+### Reproducing these numbers
 
-Sections 4 and 5 are confirmed a no-op on Linux by their own container run -- the three files they
-touch, `test_example_grids.py` + both `postprocessing/` suites: **111 passed, 2 skipped, 6 xfailed,
-0 failed**.
+The exact shell preamble -- cache isolation, Ray cleanup, and the invocation -- is in
+[`docker/README.md`](docker/README.md#the-full-git-bash-session-setup), with the container
+equivalent. Three things there are easy to skip and each one invalidates a comparison: the cache
+variables must be exported *before* `python` starts, `uv run` must not be bypassed, and the two sides
+must be run one at a time.
 
+### Which compute device each run actually used
 
-**Do not measure this with `git stash push -- packages/`.** If anything interrupts the run between
-push and pop, the work is stranded in a stash that is easy to lose. Use `git worktree add`, or the
-`git archive` extraction above.
+Every number in this document was produced on **CPU, on both platforms**. That is deliberate: it
+leaves the operating system as the only variable. Running one leg on a GPU would have made the two
+incomparable, and float64 differences would have muddied exactly the numeric failures being
+attributed.
+
+Verified directly, not inferred from configuration:
+
+| Environment | `jax.devices()` | GPU |
+|---|---|---|
+| Windows host `.venv` | `[CpuDevice(id=0)]`, `jax_cuda12_plugin` not installed | **no, and no path to it** |
+| container `toop` (CPU service) | `[CpuDevice(id=0)]` | no |
+| container `toop-gpu` (`gpu` profile) | `[CudaDevice(id=0)]` | **yes** |
+
+**Native Windows cannot use the GPU at all.** JAX publishes CUDA wheels for Linux x86-64 only; there
+is no native-Windows CUDA jaxlib. The GPU path on a Windows machine is the `toop-gpu` container via
+WSL2, which is why the compose setup carries a separate GPU service rather than a flag.
+
+The GPU service itself is confirmed working (`1b764b5`): `device_banner.py` reports
+`CudaDevice(id=0)` on an RTX 3050 Laptop (driver 526.56, 4 GB), and a float64 matmul executes on it —
+1.50 s on the first call, 0.19 s once compiled. `device_banner.py` proves this by *running* a
+computation rather than trusting the device list, because three of the four things that enable the
+GPU fail silently (see Part 1).
+
+**The solver suite has never been run on the GPU.** That is a genuine gap, not an omission from this
+PR's scope — the fixes here are dtype- and path-related and are device-independent. Two things to
+expect when someone does it: with ~3 GiB usable VRAM, `lf_config.batch_size` will likely need
+lowering from 8, or `XLA_PYTHON_CLIENT_PREALLOCATE=false`; and ToOp forces `jax_enable_x64`
+(`dc/main.py:239`, `preprocess/convert_to_jax.py:65`) while consumer GeForce cards run float64 at
+~1/32 of float32, so the GPU only pays off on grids large enough to fill it. Measure any GPU run
+twice — the first costs ~30 s in CUDA context creation and XLA compilation.
 
 ## Correction: `test_loadflows_match*` was **not** pre-existing
 
@@ -465,41 +621,63 @@ tests as pre-existing Windows failures caused by a genuine numerical disagreemen
 solver and pypowsybl -- quoting flow arrays that differed by 0.94 % and 158 %, and arguing the UCTE
 case looked like a different slack treatment.
 
-**That was wrong, and the delta above disproves it.** All three fail at `origin/main` and pass with
-this PR:
+**That was wrong.** All three pass on Windows:
 
 ```
 $ uv run pytest packages/dc_solver_pkg/tests/preprocessing/test_powsybl_backend.py -q -p no:randomly
 17 passed in 61.97s
 ```
 
-The flow arrays *were* the symptom, but the cause was upstream: int32 index and sentinel arrays
-built a different grid before the loadflow ever ran, so the two solvers were not being asked the
-same question. The comparison was misdiagnosed as a solver disagreement because the earlier
-"pre-existing?" check ran against a `HEAD` that already carried part of the fix.
+They also pass in the clean full-suite run. What remains uncertain is *why* the earlier run showed
+them failing: that baseline came from the contaminated environment described under
+[Verification](#a-measurement-retraction-first), so the "fails at `origin/main`, passes here"
+framing is no longer supported either. What is certain is the negative claim -- **these are not a
+standing JAX-vs-pypowsybl numerical disagreement on Windows**, and the flow arrays quoted in the
+earlier revision should not be treated as evidence of one.
 
 `test_powsybl_backend.py` is expected to report **17 passed** on Windows, matching the container.
 
-## The 63 that still fail on Windows
+## What still fails on Windows
 
-All 63 also fail at `origin/main`, so this PR neither causes nor addresses them. Characterising the
-previous 76 is what turned up sections 4 and 5 -- 13 of them were the same C-`long` bug in files the
-original sweep had not covered. What is left no longer shows that signature:
+### Nothing, once the Docker daemon is healthy
 
-| Cluster | Count | Dominant signature |
-|---|---|---|
-| `postprocessing/test_validate_loadflow_results.py` | 31 | `AssertionError: n_N-n_N does not match` |
-| `postprocessing/test_postprocess_powsybl.py` | 17 | `AssertionError: DC Better` / numeric mismatch |
-| `preprocessing/test_parallel_switch_edge_cases.py` | 4 | `assert False` |
-| `jax/test_bsdf.py` | 3 | numeric mismatch |
-| `jax/test_topology_looper.py` | 2 | numeric mismatch |
-| one each: `test_example_grids`, `test_loadflows_match`, `test_postprocess_pandapower`, `test_multi_outages`, `test_compute_batch`, `test_busbar_outage` | 6 | mixed |
+The suite's only real failure — `test_load_pandapower_net_via_grid2opt_for_powsybl` — is **fixed in
+this PR**, see [section 7](#7-namedtemporaryfile-cannot-be-reopened-by-name-on-windows). It was
+pre-existing (`grid_helpers_pkg/src` had zero changes on this branch before that fix) but it is the
+same class of defect as the rest, so it is closed here rather than deferred.
 
-These are numeric disagreements rather than dtype errors, and the remaining `test_example_grids.py`
-failure is `test_case57_backends_match` -- pandapower against pypowsybl, not Windows against Linux.
-The most likely common cause is the `tot_stat` sentinel described under "Still open", which is known
-to change the loadflow result on the Windows XLA CPU backend and is deliberately untouched here.
-Closing them is separate work.
+### Twenty-one Kafka errors — environmental
+
+Every one is `DockerException: ... 500 Server Error for http+docker://localnpipe/version`. The Docker
+daemon was unhealthy for the duration. These need a broker and never started, so they are not
+failures of the suite. Re-run once `docker ps` answers cleanly, or exclude with `-m "not kafka"`.
+
+### Worker crashes under memory pressure — resolved, and worth knowing
+
+Earlier runs saw three tests kill their xdist worker outright
+(`node down: Not properly terminated`, no traceback):
+
+| Test | Package |
+|---|---|
+| `test_stored_action_set_large_performance` | `interfaces_pkg` |
+| `test_make_action_repo_large@performance` | `dc_solver_pkg` |
+| `test_mutate_on_same_repository_with_different_keys` | `topology_optimizer_pkg` |
+
+**All three pass on an idle machine** — 157.94 s, and 290.63 s for the slowest — and the run that
+contains them finished in 34 m rather than 1 h 44 m. They are the three heaviest tests in the suite,
+and they die only when a *second* suite is competing for memory on the same host, which is what was
+happening during the earlier measurements.
+
+An earlier revision of this file called them "reproducible crashes under `-n 4`" and, before that,
+attributed one of them to timeout-under-contention. Both were wrong in different directions. The
+accurate statement is: **do not run the native and container suites concurrently** — a 4-worker run
+on each side is 8 JAX processes plus Ray, and the heaviest tests are the ones that die.
+
+The failure mode is worth documenting even so, because it is silent and bimodal: xdist replaces the
+dead worker, and if the replacement cannot initialise under the same pressure the controller waits on
+it forever. Full chain and `py-spy` signature in
+[`docker/README.md`](docker/README.md). Passing `--max-worker-restart=0` turns the hang into an
+immediate error naming the test.
 
 ---
 

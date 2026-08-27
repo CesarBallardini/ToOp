@@ -77,6 +77,65 @@ docker compose run --rm toop uv run pytest packages/interfaces_pkg/tests -q
 docker compose run --rm toop uv run pytest packages/dc_solver_pkg/tests -q -n 4 --dist loadgroup
 ```
 
+Against a service that is already up, use `exec` instead — and `-T` when scripting, since there is
+no TTY:
+
+```powershell
+docker compose up -d toop
+docker compose exec toop uv run pytest packages/dc_solver_pkg/tests -q -p no:randomly
+docker compose exec -T toop uv run pytest ... # scripts / CI
+```
+
+Add `-p no:randomly` whenever you intend to compare two runs; without it the order changes and the
+failure lists are not comparable.
+
+To reproduce a per-package CI run:
+
+```powershell
+docker compose exec -T toop env UV_PROJECT=packages/dc_solver_pkg CLEANUP_RAY_AFTER_TESTS=true `
+  uv run pytest -n 4 --dist loadgroup packages/dc_solver_pkg/tests `
+  --cov=packages/dc_solver_pkg/src --cov-config=.coveragerc
+```
+
+Environment variables worth knowing:
+
+| Variable | Effect |
+|---|---|
+| `JAX_PLATFORMS=cpu` | force CPU inside the GPU container |
+| `CLEANUP_RAY_AFTER_TESTS=true` | avoid Ray resource leaks between runs |
+| `TOOP_SKIP_SYNC=1` | skip the entrypoint's `uv sync` (offline, or when iterating quickly) |
+| `UV_PROJECT=packages/<pkg>` | run one package in its own uv environment, as CI does |
+
+### Do not share a bytecode cache with the host
+
+`/app` in the container *is* your Windows checkout. By default both sides write `__pycache__` next
+to the sources they import, and because the bind mount gives them byte-identical mtime and size,
+**each silently reuses the other's `.pyc` files**. The tell is pytest reporting test modules as
+`<- ..\..\..\app\packages\...` during a native run, or tracebacks citing `/app/...` paths that do
+not exist on the host. It is confusing rather than fatal — but it makes a native-vs-container
+comparison worthless, which is exactly when you are running both.
+
+The container side is already handled: the image sets `PYTHONPYCACHEPREFIX=/tmp/pycache` and
+`PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest_cache"`, so nothing it compiles lands in the checkout.
+No extra variables are needed for `docker compose`.
+
+The **host** side needs the mirror image of this. Put it in your shell profile, not in a one-off
+command:
+
+```bash
+export PYTHONPYCACHEPREFIX="$HOME/.cache/toop-pycache-win"
+export PYTEST_ADDOPTS="-o cache_dir=$HOME/.cache/toop-pytest-win"
+```
+
+`PYTHONPYCACHEPREFIX` is read once at interpreter startup, so setting it from `conftest.py` or
+`[tool.pytest_env]` is too late — it has to be in the environment before `python` starts.
+
+If the tree is already cross-contaminated, clear it once:
+
+```bash
+find packages -name '__pycache__' -type d -exec rm -rf {} + && rm -rf .pytest_cache
+```
+
 **Prefer an explicit `-n <N>` over `-n auto` here.** CI uses `-n auto` on a dedicated runner; inside
 WSL2 on a laptop it starts one worker per core, each loading its own JAX runtime, which can easily
 outgrow the VM's memory allowance. During this setup's first run the Docker engine became
@@ -151,6 +210,59 @@ docker compose exec toop-gpu uv run python -c "import jax; print(jax.devices())"
 Jupyter for the GPU service is on `http://localhost:8889` so it can coexist with the CPU one. If
 `jax.devices()` still reports CPU, the container is not seeing the GPU — check
 `docker compose exec toop-gpu nvidia-smi` first.
+
+Better than `jax.devices()`, read the banner `entrypoint.sh` prints at every start: it *proves* the
+GPU by running a computation rather than trusting the device list, and names the cause when it falls
+back.
+
+```powershell
+docker compose --profile gpu logs toop-gpu | Select-Object -First 20
+docker compose exec toop-gpu uv run python /usr/local/bin/device_banner.py
+```
+
+From **Git Bash**, that second command needs `MSYS_NO_PATHCONV=1`, or MSYS rewrites
+`/usr/local/bin/device_banner.py` into `C:/Program Files/Git/usr/local/bin/device_banner.py` and you
+get a confusing "No such file or directory":
+
+```bash
+MSYS_NO_PATHCONV=1 docker compose exec toop-gpu uv run python /usr/local/bin/device_banner.py
+```
+
+Verified on an RTX 3050 Laptop (4 GB, driver 526.56):
+
+```
+  COMPUTE DEVICE: GPU  <<< NVIDIA GeForce RTX 3050 Laptop GPU
+  devices       : [CudaDevice(id=0)]
+  VRAM budget   : 3.00 GiB (JAX pre-allocates ~75% of the card by default)
+```
+
+Then run the solver tests on it:
+
+```powershell
+docker compose exec toop-gpu uv run pytest packages/dc_solver_pkg/tests/jax -q -p no:randomly
+```
+
+### If the CUDA build looks hung
+
+It probably is not — but it can be. `uv` opens many concurrent downloads for ~2.8 GB of CUDA wheels,
+the largest being `cudnn` at 762 MB and `cublas` at 554 MB. On a domestic link each stream crawls,
+`uv`'s default 30 s read timeout trips, and it **restarts that wheel from zero**. The symptom is a
+burst of `Downloading nvidia-...` lines reappearing for wheels that had already finished, after
+which nothing progresses. It can loop indefinitely.
+
+`docker/Dockerfile` therefore sets `UV_HTTP_TIMEOUT=900 UV_CONCURRENT_DOWNLOADS=2` on that one `RUN`
+step — fewer streams each get a usable share of the bandwidth, and a long timeout tolerates a stall.
+Scoped to the step, so it does not affect the runtime image or the entrypoint's sync.
+
+To tell a stalled build from a slow one, watch the cache from another terminal; it should keep
+climbing:
+
+```powershell
+docker system df
+```
+
+Interrupting and re-running is safe: the layers before the CUDA step are cached, and `uv`'s cache
+mount keeps the wheels that already completed.
 
 ## Performance notes for Windows
 

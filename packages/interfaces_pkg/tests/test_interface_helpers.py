@@ -5,6 +5,7 @@
 # you can obtain one at https://mozilla.org/MPL/2.0/.
 # Mozilla Public License, version 2.0
 
+import numpy as np
 import pandas as pd
 import pandera.typing as pat
 import pytest
@@ -37,7 +38,12 @@ def test_empty_dataframe_from_simple_model():
     assert list(df.columns) == ["a", "b"]
     assert df.empty
     assert df.index.names == [None]
-    assert df.dtypes["a"] == int
+    # Compare against the concrete width, not bare `int`: numpy resolves `int` to the
+    # platform's C `long`, which is int32 on Windows, while pandera resolves `Series[int]`
+    # to int64 everywhere. `dtype('int64') == int` is therefore False on Windows only.
+    # `np.int64` rather than the string "int64" so a typo raises AttributeError instead of
+    # comparing unequal -- a misspelled string fails looking exactly like a real dtype mismatch.
+    assert df.dtypes["a"] == np.int64
     assert df.dtypes["b"] == float
 
 
@@ -47,7 +53,7 @@ def test_empty_dataframe_from_index_model():
     assert list(df.columns) == ["val"]
     assert df.empty
     assert df.index.names == ["idx"]
-    assert df.dtypes["val"] == int
+    assert df.dtypes["val"] == np.int64
     assert df.index.dtype == "object"  # Index of type str
 
 
@@ -57,9 +63,9 @@ def test_empty_dataframe_from_multiindex_model():
     assert list(df.columns) == ["val"]
     assert df.empty
     assert df.index.names == ["idx1", "idx2"]
-    assert df.dtypes["val"] == int
+    assert df.dtypes["val"] == np.int64
     assert df.index.get_level_values(0).dtype == "object"  # First index of type str
-    assert df.index.get_level_values(1).dtype == int  # Second index of type int
+    assert df.index.get_level_values(1).dtype == np.int64  # Second index of type int
 
 
 def test_raises_value_error_when_index_field_missing(monkeypatch):

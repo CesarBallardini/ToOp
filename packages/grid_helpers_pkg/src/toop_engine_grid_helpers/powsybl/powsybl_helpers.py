@@ -622,12 +622,18 @@ def load_pandapower_net_via_grid2opt_for_powsybl(
         The converted pypowsybl network.
     """
     pandapower.runpp(net)
-    with tempfile.NamedTemporaryFile(suffix=".mat", delete=True) as tmpfile:
-        _ = pandapower.converter.to_mpc(net, tmpfile.name)
+    # A temporary *directory* rather than `NamedTemporaryFile`: the latter keeps the file open for
+    # the duration of the `with`, and on Windows that handle is exclusive, so `to_mpc()` reopening
+    # the same path to write it fails with `PermissionError: [Errno 13] Permission denied`. POSIX
+    # allows the second open, which is why this only breaks on Windows. Handing out a path inside a
+    # directory we never open ourselves works the same way on both.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mat_path = Path(tmpdir) / "net.mat"
+        _ = pandapower.converter.to_mpc(net, str(mat_path))
         loading_params = {
             "matpower.import.ignore-base-voltage": "false",  # change the voltage from per unit to Kv
         }
-        pypowsybl_network = pypowsybl.network.load(tmpfile.name, loading_params)
+        pypowsybl_network = pypowsybl.network.load(str(mat_path), loading_params)
     return pypowsybl_network
 
 

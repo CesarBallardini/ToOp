@@ -75,6 +75,24 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # sync so it does not invalidate that layer.
 ENV UV_COMPILE_BYTECODE=0
 
+# Keep every byproduct of an in-container run off the bind mount.
+#
+# /app is the Windows checkout. Without this, the container writes __pycache__ next to the sources
+# it imports, and those .pyc files record their origin as /app/packages/... Because the bind mount
+# gives both sides byte-identical mtime and size, a later *native Windows* run happily reuses that
+# container-built bytecode: pytest then reports test modules as `<- ..\..\app\packages\...`, and
+# tracebacks point at paths that do not exist on the host. It works in reverse too -- Windows-built
+# .pyc shadowing the container's. Confusing rather than fatal, but it makes a native-vs-container
+# comparison untrustworthy, which is exactly when it matters.
+#
+# PYTHONPYCACHEPREFIX moves the whole cache tree to a container-local path (it mirrors the source
+# layout underneath, so nothing is lost and imports stay fast). The pytest cache is redirected for
+# the same reason: it lives at the rootdir, which is the bind mount.
+#
+# The host side needs the mirror image of this; see "Testing notes" in CLAUDE.md.
+ENV PYTHONPYCACHEPREFIX=/tmp/pycache \
+    PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest_cache"
+
 # Optional NVIDIA GPU support. Requires an NVIDIA GPU, a Windows driver with WSL2 CUDA support, and
 # `docker compose --profile gpu`. Roughly doubles the image size, hence opt-in.
 #
@@ -94,12 +112,20 @@ ENV UV_COMPILE_BYTECODE=0
 #     wheels are deliberately absent from uv.lock, so a plain `uv sync --frozen` treats them as
 #     extraneous and uninstalls them on every container start -- silently downgrading the GPU
 #     service back to CPU. See docker/README.md.
+#
+#  4. The two UV_ settings below are about getting ~2.8GB of wheels down a domestic link, not about
+#     correctness. uv defaults to many concurrent downloads and a 30s read timeout; with cudnn at
+#     762MB and cublas at 554MB, a dozen parallel streams each crawl, the timeout trips, and uv
+#     restarts that wheel from zero -- which looks exactly like a hung build and can loop forever.
+#     Fewer streams each get a usable share of the bandwidth, and the long timeout tolerates a stall.
+#     Scoped to this RUN so they do not affect the runtime image or the entrypoint's sync.
 ARG INSTALL_CUDA=false
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$INSTALL_CUDA" = "true" ]; then \
       JAX_VERSION="$("$UV_PROJECT_ENVIRONMENT/bin/python" -c 'import jax; print(jax.__version__)')" \
    && echo "Installing jax[cuda12]==${JAX_VERSION} (pinned to the version resolved by uv.lock)" \
-   && uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" "jax[cuda12]==${JAX_VERSION}"; \
+   && UV_HTTP_TIMEOUT=900 UV_CONCURRENT_DOWNLOADS=2 \
+      uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" "jax[cuda12]==${JAX_VERSION}"; \
     fi
 ENV TOOP_CUDA=${INSTALL_CUDA}
 

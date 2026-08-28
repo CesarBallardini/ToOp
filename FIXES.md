@@ -83,7 +83,7 @@ so explicitly, because confusing them is the obvious first mistake.
 
 ```bash
 docker compose up -d                          # Jupyter Lab on :8888
-docker compose exec toop bash                 # interactive; use `uv run ...`
+docker compose exec toop-cpu bash                 # interactive; use `uv run ...`
 docker compose --profile gpu up -d toop-gpu   # NVIDIA variant, Jupyter on :8889
 ```
 
@@ -287,6 +287,17 @@ both places carrying the annotation: `dc_solver/jax/benchmarks/runner.py` and
 multiprocessing path of the pipeline itself.
 
 Result on Windows: `test_runner.py` went from **hanging for 300 s** to **2 passed in 47 s**.
+
+**Verified as a no-op on Linux, empirically.** The other file this touches,
+`topology_optimizer/benchmark/test_benchmark_utils.py`, was the last open attribution question in
+this PR: it appeared to fail in the container, which would have contradicted the widening argument.
+Run in isolation on Linux it is **14 passed in 9:13**, including `test_run_pipeline` (171 s) and
+`test_run_pipeline_no_optimization_stage` (107 s) -- the two that had appeared to fail. They are
+among the longest tests in the suite, and the run in which they failed was one where the Docker
+daemon died partway through. The structural argument holds: in both files the name `Connection`
+appears only as an import, a type annotation and docstring text -- there is no `isinstance` check, no
+construction, no subclassing -- so on Linux, where `Connection` *is* a `_ConnectionBase`, the
+widening cannot reject anything it previously accepted.
 
 ---
 
@@ -593,7 +604,7 @@ Verified directly, not inferred from configuration:
 | Environment | `jax.devices()` | GPU |
 |---|---|---|
 | Windows host `.venv` | `[CpuDevice(id=0)]`, `jax_cuda12_plugin` not installed | **no, and no path to it** |
-| container `toop` (CPU service) | `[CpuDevice(id=0)]` | no |
+| container `toop-cpu` (CPU service) | `[CpuDevice(id=0)]` | no |
 | container `toop-gpu` (`gpu` profile) | `[CudaDevice(id=0)]` | **yes** |
 
 **Native Windows cannot use the GPU at all.** JAX publishes CUDA wheels for Linux x86-64 only; there
@@ -606,8 +617,10 @@ The GPU service itself is confirmed working (`1b764b5`): `device_banner.py` repo
 computation rather than trusting the device list, because three of the four things that enable the
 GPU fail silently (see Part 1).
 
-**The solver suite has never been run on the GPU.** That is a genuine gap, not an omission from this
-PR's scope — the fixes here are dtype- and path-related and are device-independent. Two things to
+**The solver's JAX suite has now been run on the GPU** (2026-08-27): `129 passed, 1 skipped` in
+15:05, via the `toop-gpu` service with `XLA_PYTHON_CLIENT_PREALLOCATE=false`. Nothing in this PR is
+device-dependent — the fixes are dtype- and path-related — but it is worth recording that the GPU
+path produces the same results. Two things to
 expect when someone does it: with ~3 GiB usable VRAM, `lf_config.batch_size` will likely need
 lowering from 8, or `XLA_PYTHON_CLIENT_PREALLOCATE=false`; and ToOp forces `jax_enable_x64`
 (`dc/main.py:239`, `preprocess/convert_to_jax.py:65`) while consumer GeForce cards run float64 at

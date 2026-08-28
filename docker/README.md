@@ -20,14 +20,14 @@ container. The Python environment is created and executed entirely through `uv`.
   total — immediately after a build, and `docker images` was observed switching to 4.49 GB only
   after a daemon restart. To measure for real, look inside (prefix with `MSYS_NO_PATHCONV=1` in Git
   Bash, see below):
-  `docker run --rm --entrypoint sh toop-toop:latest -c "du -sh /opt/venv"`.
+  `docker run --rm --entrypoint sh toop-toop-cpu:latest -c "du -sh /opt/venv"`.
 - No local Python needed — everything runs inside the container.
 
 ## Quick start
 
 ```powershell
 cd C:\Users\<you>\...\ToOp
-docker compose build toop        # ~9 min cold (6.5 min of it is `uv sync`)
+docker compose build toop-cpu        # ~9 min cold (6.5 min of it is `uv sync`)
 docker compose up -d
 ```
 
@@ -39,7 +39,7 @@ Open `http://localhost:8888` and run `notebooks/example1_dc_loadflow_example.ipy
 For a shell instead:
 
 ```powershell
-docker compose exec toop bash
+docker compose exec toop-cpu bash
 # then, inside:
 uv run python -c "import jax; print(jax.devices())"
 uv run pytest packages/interfaces_pkg/tests -q
@@ -63,7 +63,7 @@ Prefix the command with `MSYS_NO_PATHCONV=1` whenever it contains a container-ab
 (`-w /app`, `-v <host>:/app`, or a bare `/opt/...` argument):
 
 ```bash
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/app" -w /app toop-toop:latest uv run pytest -q
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/app" -w /app toop-toop-cpu:latest uv run pytest -q
 ```
 
 The plain `docker compose` commands in this file are unaffected — their paths are relative — so
@@ -73,17 +73,17 @@ PowerShell users and anyone staying on `docker compose` can ignore this. Doublin
 ## Running tests
 
 ```powershell
-docker compose run --rm toop uv run pytest packages/interfaces_pkg/tests -q
-docker compose run --rm toop uv run pytest packages/dc_solver_pkg/tests -q -n 4 --dist loadgroup
+docker compose run --rm toop-cpu uv run pytest packages/interfaces_pkg/tests -q
+docker compose run --rm toop-cpu uv run pytest packages/dc_solver_pkg/tests -q -n 4 --dist loadgroup
 ```
 
 Against a service that is already up, use `exec` instead — and `-T` when scripting, since there is
 no TTY:
 
 ```powershell
-docker compose up -d toop
-docker compose exec toop uv run pytest packages/dc_solver_pkg/tests -q -p no:randomly
-docker compose exec -T toop uv run pytest ... # scripts / CI
+docker compose up -d toop-cpu
+docker compose exec toop-cpu uv run pytest packages/dc_solver_pkg/tests -q -p no:randomly
+docker compose exec -T toop-cpu uv run pytest ... # scripts / CI
 ```
 
 Add `-p no:randomly` whenever you intend to compare two runs; without it the order changes and the
@@ -92,7 +92,7 @@ failure lists are not comparable.
 To reproduce a per-package CI run:
 
 ```powershell
-docker compose exec -T toop env UV_PROJECT=packages/dc_solver_pkg CLEANUP_RAY_AFTER_TESTS=true `
+docker compose exec -T toop-cpu env UV_PROJECT=packages/dc_solver_pkg CLEANUP_RAY_AFTER_TESTS=true `
   uv run pytest -n 4 --dist loadgroup packages/dc_solver_pkg/tests `
   --cov=packages/dc_solver_pkg/src --cov-config=.coveragerc
 ```
@@ -167,7 +167,7 @@ The container equivalent needs none of the cache variables (the image sets them)
 same Ray setting:
 
 ```bash
-docker compose exec -T -e CLEANUP_RAY_AFTER_TESTS=true toop uv run pytest <same arguments>
+docker compose exec -T -e CLEANUP_RAY_AFTER_TESTS=true toop-cpu uv run pytest <same arguments>
 ```
 
 **Run the two sides one at a time.** `-n 4` on each is 8 workers plus Ray and JAX on one machine, and
@@ -247,7 +247,7 @@ with `ray.exceptions.OutOfMemoryError` — Ray sees the node at 95 % and kills a
 when the file is run on its own:
 
 ```powershell
-docker compose run --rm toop uv run pytest packages/dc_solver_pkg/tests/jax/benchmarks/test_bench_postprocessing.py -q
+docker compose run --rm toop-cpu uv run pytest packages/dc_solver_pkg/tests/jax/benchmarks/test_bench_postprocessing.py -q
 # 3 passed in 211.42s
 ```
 
@@ -258,7 +258,7 @@ A later **serial** run of the same suite — no `-n`, so nothing competes for me
 completely clean:
 
 ```powershell
-docker compose exec toop uv run pytest packages/dc_solver_pkg/tests -q -p no:randomly
+docker compose exec toop-cpu uv run pytest packages/dc_solver_pkg/tests -q -p no:randomly
 # 531 passed, 8 skipped, 7 xfailed in 39:57
 ```
 
@@ -420,7 +420,7 @@ Works here, and everywhere else. `protoc` comes from the `grpcio-tools` wheel ra
 binary, so the compiler version is pinned by `uv.lock` and needs no image-specific tooling:
 
 ```powershell
-docker compose run --rm toop uv run bash packages/interfaces_pkg/src/compile_proto.sh
+docker compose run --rm toop-cpu uv run bash packages/interfaces_pkg/src/compile_proto.sh
 ```
 
 Regeneration is rare — the `*_pb2.py` / `.pyi` files are committed, and there is exactly one schema
@@ -463,5 +463,5 @@ shims first. The directly runnable CLIs are
 | Container exits with code 137 | Out of memory — see the `.wslconfig` section above. |
 | `docker version` returns `500 Internal Server Error` for *every* call, while `wsl -l -v` shows `docker-desktop` Running and `docker desktop status` says `running` | The Desktop backend is wedged; the "check if the server supports the requested API version" wording is boilerplate appended to any 500, not a real version problem (pinning `DOCKER_API_VERSION` does not help). Confirm by checking whether `%LOCALAPPDATA%\Docker\log\vm\init.log` has stopped growing, and whether `docker desktop status` still reports the *same* `SessionID` after a restart — an unchanged SessionID means the backend never actually restarted. Fix: quit Docker Desktop fully from the tray, `wsl --shutdown`, then relaunch and let any pending update finish. |
 | `detected dubious ownership in repository at '/app'` | The entrypoint sets `safe.directory`; this means it was bypassed. Run `git config --global --add safe.directory /app` inside the container. |
-| `uv sync` fails offline at startup | `docker compose run -e TOOP_SKIP_SYNC=1 toop bash`. |
-| Rebuild does not pick up dependency changes | `docker compose build --no-cache toop`, then `docker compose down -v` to reset the environment volume. |
+| `uv sync` fails offline at startup | `docker compose run -e TOOP_SKIP_SYNC=1 toop-cpu bash`. |
+| Rebuild does not pick up dependency changes | `docker compose build --no-cache toop-cpu`, then `docker compose down -v` to reset the environment volume. |

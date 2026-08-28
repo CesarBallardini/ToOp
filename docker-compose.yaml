@@ -8,7 +8,7 @@
 # Local ToOp stack for a laptop. See docker/README.md.
 #
 #   docker compose up -d                 -> Jupyter Lab on http://localhost:8888
-#   docker compose exec toop bash        -> interactive shell, use `uv run ...`
+#   docker compose exec toop-cpu bash        -> interactive shell, use `uv run ...`
 #   docker compose --profile gpu up -d   -> NVIDIA GPU variant (see docker/README.md)
 #
 # This file is unrelated to dev-deployment/docker-compose.yaml, which brings up the Kafka broker
@@ -38,7 +38,7 @@ x-toop-base: &toop-base
   tty: true
 
 services:
-  toop:
+  toop-cpu:
     <<: *toop-base
     # Bound to loopback only: Jupyter runs without a token (see the CMD in docker/Dockerfile), so it
     # must not be reachable from the local network.

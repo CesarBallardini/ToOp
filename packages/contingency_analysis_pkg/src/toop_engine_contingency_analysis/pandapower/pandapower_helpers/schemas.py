@@ -88,6 +88,17 @@ class CascadeConfig(BaseModel):
     cascade_log_elements: list[str]
     """MRIDs of elements whose cascade events should be written to the log (e.g. line, trafo, trafo3w)."""
 
+    stop_cascade_on_basecase_violation: bool = True
+    """Skip cascade simulation for every contingency when the base case already violates.
+
+    A base case that is overloaded, or whose relay impedance already sits inside a distance
+    protection zone, makes the N-1 cascade results meaningless: the cascade would be started
+    from an already-broken state, and practically every contingency would report one. When
+    this is enabled the base case is screened once, before any contingency is computed, and a
+    violation is reported as ``BASECASE_*`` cascade events instead. The N-1 load flows
+    themselves still run; only the cascade simulation is skipped.
+    """
+
     def loading_threshold(self, element_table: str, *, basecase: bool) -> float:
         """Resolve the loading threshold that applies to one branch.
 
@@ -444,6 +455,19 @@ class ContingencyAnalysisConfig(BaseModel):
     polars: bool = False
     """Whether to convert the final result object from pandas to polars format."""
 
+    freeze_net_columns: bool = False
+    """Make the memory an outage shares with the base-case net read-only.
+
+    Every outage runs on a partial copy: only the columns in ``MUTABLE_COLUMNS_BY_TABLE`` get
+    data of their own, and the rest share the base-case net's memory. Writing a shared column
+    would corrupt the base case and every later outage, silently. With this enabled such a
+    write raises ``ValueError: assignment destination is read-only`` instead, with a traceback
+    naming the line that wrote it.
+
+    Off by default: it converts a latent bug into a hard mid-run failure, which is what CI
+    wants and production does not. Turn it on in tests, and after a soak in production.
+    """
+
     apply_outage_grouping: bool = False
     """Whether to group contingencies by electrically connected outage scope.
 
@@ -748,6 +772,11 @@ class SequentialContingencyAnalysisContext(BaseModel):
     """Base-case busbar-coupler origin ids, precomputed once per run and forwarded
     into each :class:`SingleOutageContext`. Empty when cascade screening is disabled."""
 
+    freeze_net_columns: bool = False
+    """Freeze the memory each outage copy shares with the base-case net; see
+    :attr:`ContingencyAnalysisConfig.freeze_net_columns`. Carried here so it reaches the
+    ray workers, which do not inherit the parent process module state."""
+
 
 class ParallelContingencyAnalysisContext(BaseModel):
     """Shared context for parallel N-1 contingency analysis.
@@ -856,3 +885,8 @@ class ParallelContingencyAnalysisContext(BaseModel):
     """Base-case busbar-coupler origin ids, precomputed once per run and forwarded
     into each :class:`SequentialContingencyAnalysisContext` worker job. Empty when
     cascade screening is disabled."""
+
+    freeze_net_columns: bool = False
+    """Freeze the memory each outage copy shares with the base-case net; see
+    :attr:`ContingencyAnalysisConfig.freeze_net_columns`. Carried here so it reaches the
+    ray workers, which do not inherit the parent process module state."""
